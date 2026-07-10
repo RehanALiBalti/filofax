@@ -1,0 +1,94 @@
+{
+  "info": {
+    "name": "Filofax AI Event Assistant",
+    "description": "Local Ollama-powered create/search assistant",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://127.0.0.1:8002" },
+    { "key": "userId", "value": "default" }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/api/health"
+      }
+    },
+    {
+      "name": "Assistant — Create event",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"user_id\": \"{{userId}}\",\n  \"message\": \"Add a doctor appointment tomorrow at 4 PM\"\n}"
+        },
+        "url": "{{baseUrl}}/api/assistant/chat"
+      }
+    },
+    {
+      "name": "Assistant — Confirm create",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"user_id\": \"{{userId}}\",\n  \"message\": \"yes\",\n  \"confirm\": true,\n  \"pending_event\": {\n    \"date\": \"2026-07-11\",\n    \"time\": \"16:00\",\n    \"label\": \"Doctor Appointment\",\n    \"category\": \"Appointment\",\n    \"notes\": null\n  }\n}"
+        },
+        "url": "{{baseUrl}}/api/assistant/chat"
+      }
+    },
+    {
+      "name": "Assistant — Search",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"user_id\": \"{{userId}}\",\n  \"message\": \"Show tomorrow's appointments\"\n}"
+        },
+        "url": "{{baseUrl}}/api/assistant/chat"
+      }
+    },
+    {
+      "name": "Assistant — Roman Urdu",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"user_id\": \"{{userId}}\",\n  \"message\": \"Kal 4 baje dentist ki appointment add kar do\"\n}"
+        },
+        "url": "{{baseUrl}}/api/assistant/chat"
+      }
+    },
+    {
+      "name": "Assistant — Multilingual (Spanish)",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"user_id\": \"{{userId}}\",\n  \"message\": \"Mañana tengo una cita a las cuatro\"\n}"
+        },
+        "url": "{{baseUrl}}/api/assistant/chat"
+      }
+    },
+    {
+      "name": "List events",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/api/events?user_id={{userId}}"
+      }
+    },
+    {
+      "name": "Search events",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/api/events/search?user_id={{userId}}&category=Appointment"
+      }
+    }
+  ]
+}

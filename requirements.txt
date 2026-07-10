@@ -1,0 +1,11 @@
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+pydantic>=2.0.0
+requests>=2.31.0
+langchain-ollama>=0.2.0
+langchain-core>=0.3.0
+sqlalchemy>=2.0.0
+python-dateutil>=2.9.0
+python-multipart>=0.0.9
+
+# LLM: Ollama (qwen2.5:7b) — install Ollama separately, not via pip
