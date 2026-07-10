@@ -81,16 +81,47 @@ systemctl restart filofax-backend
 # nginx snippet
 echo "==> nginx /filofax/ location"
 mkdir -p /etc/nginx/snippets
-cp "$APP_DIR/deploy/nginx-filofax.snippet" "$SNIPPET_DST"
+# Strip comment header from snippet so only location blocks remain
+grep -v '^#' "$APP_DIR/deploy/nginx-filofax.snippet" | grep -v '^$' > "$SNIPPET_DST" || cp "$APP_DIR/deploy/nginx-filofax.snippet" "$SNIPPET_DST"
+
+# Remove broken lines from a previous bad sed insert (literal "n" directive)
+if [[ -f "$NGINX_SITE" ]]; then
+  # Delete standalone "n" lines and duplicate broken Filofax markers left by old sed
+  sed -i '/^[[:space:]]*n[[:space:]]*$/d' "$NGINX_SITE"
+fi
 
 if [[ -f "$NGINX_SITE" ]]; then
   if ! grep -q 'snippets/filofax.conf' "$NGINX_SITE" 2>/dev/null; then
-    # Insert include after server_name / client_max_body_size if possible, else after "server {"
-    if grep -q 'client_max_body_size' "$NGINX_SITE"; then
-      sed -i '/client_max_body_size/a\n    # Filofax\n    include /etc/nginx/snippets/filofax.conf;' "$NGINX_SITE"
-    else
-      sed -i '/server {/a\    include /etc/nginx/snippets/filofax.conf;' "$NGINX_SITE"
-    fi
+    python3 - "$NGINX_SITE" <<'PY'
+import sys
+path = sys.argv[1]
+include_line = "    include /etc/nginx/snippets/filofax.conf;"
+with open(path, encoding="utf-8") as f:
+    lines = f.readlines()
+out = []
+inserted = False
+for i, line in enumerate(lines):
+    out.append(line)
+    if inserted:
+        continue
+    if "client_max_body_size" in line or (
+        line.strip().startswith("server_name") and i < 20
+    ):
+        out.append("\n    # Filofax\n")
+        out.append(include_line + "\n")
+        inserted = True
+if not inserted:
+    out = []
+    for line in lines:
+        out.append(line)
+        if not inserted and "server {" in line:
+            out.append("    # Filofax\n")
+            out.append(include_line + "\n")
+            inserted = True
+with open(path, "w", encoding="utf-8") as f:
+    f.writelines(out)
+print("inserted" if inserted else "failed")
+PY
     echo "    Added include to $NGINX_SITE"
   else
     echo "    Filofax include already present in $NGINX_SITE"
