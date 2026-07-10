@@ -84,9 +84,9 @@ mkdir -p /etc/nginx/snippets
 # Strip comment header from snippet so only location blocks remain
 grep -v '^#' "$APP_DIR/deploy/nginx-filofax.snippet" | grep -v '^$' > "$SNIPPET_DST" || cp "$APP_DIR/deploy/nginx-filofax.snippet" "$SNIPPET_DST"
 
-# Remove broken lines from a previous bad sed insert (literal "n" directive)
+# Remove broken lines from a previous bad sed insert (literal "n" glued to next line)
 if [[ -f "$NGINX_SITE" ]]; then
-  # Delete standalone "n" lines and duplicate broken Filofax markers left by old sed
+  sed -i 's/^n[[:space:]]\+/    /' "$NGINX_SITE"
   sed -i '/^[[:space:]]*n[[:space:]]*$/d' "$NGINX_SITE"
 fi
 

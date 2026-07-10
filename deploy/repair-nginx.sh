@@ -16,7 +16,9 @@ echo "==> Cleaning bad lines in $NGINX_SITE"
 # Show nearby context for debugging
 sed -n '1,25p' "$NGINX_SITE" || true
 
-# Remove standalone "n" lines left by broken sed '\n'
+# Old sed bug produced "n    # Filofax" (literal n glued to the next line)
+sed -i 's/^n[[:space:]]\+/    /' "$NGINX_SITE"
+# Also remove any leftover standalone "n" lines
 sed -i '/^[[:space:]]*n[[:space:]]*$/d' "$NGINX_SITE"
 
 # Ensure snippet exists
