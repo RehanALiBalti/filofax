@@ -18,10 +18,16 @@ def test_missing_order():
 
 def test_fill_time_variants():
     draft = {"date": "2026-07-11", "time": None, "category": None, "label": None}
-    for msg in ("4 PM", "4:00 pm", "16:00", "4 baje"):
+    for msg, expected in (
+        ("4 PM", "16:00"),
+        ("4:00 pm", "16:00"),
+        ("16:00", "16:00"),
+        ("4 baje", "04:00"),  # no am/pm → 24h hour as given
+        ("sham 4 baje", "16:00"),
+    ):
         out = apply_slot_reply(pending=draft, message=msg, field="time", today=TODAY)
-        assert out is not None
-        assert out["time"] == "16:00"
+        assert out is not None, msg
+        assert out["time"] == expected, msg
 
 
 def test_fill_category_and_reask_label():
@@ -42,6 +48,6 @@ def test_unclear_time_returns_none():
 
 
 def test_relative_date_kal():
-    draft = empty := {"date": None, "time": None, "category": None, "label": None}
+    empty = {"date": None, "time": None, "category": None, "label": None}
     out = apply_slot_reply(pending=empty, message="kal", field="date", today=TODAY)
     assert out["date"] == "2026-07-11"
