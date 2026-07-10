@@ -208,7 +208,11 @@
   </div>
 
   <script>
-    const API = "";
+    const API = (() => {
+      const path = window.location.pathname || "";
+      if (path === "/filofax" || path.startsWith("/filofax/")) return "/filofax";
+      return "";
+    })();
     const userId = "default";
     let pendingEvent = null;
 

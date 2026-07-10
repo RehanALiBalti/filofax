@@ -70,6 +70,12 @@ python app.py
 
 API + UI: **http://127.0.0.1:8002**
 
+### Production (Ubuntu server)
+
+See **[deploy/DEPLOY.md](deploy/DEPLOY.md)** — same host as JAMS/CV Builder:
+
+**http://65.108.236.135/filofax/**
+
 ### 3. Environment
 
 | Variable | Default | Description |

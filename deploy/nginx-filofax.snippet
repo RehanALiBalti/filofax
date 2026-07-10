@@ -1,0 +1,25 @@
+# Filofax nginx locations — include inside the main server { } block
+# (same server as JAMS / CV Builder on 65.108.236.135)
+#
+# Install:
+#   sudo cp /opt/filofax/deploy/nginx-filofax.snippet /etc/nginx/snippets/filofax.conf
+#   Then add inside server { }:  include /etc/nginx/snippets/filofax.conf;
+#   (install-alongside.sh does this automatically)
+
+# Must come BEFORE location / (JAMS)
+
+location = /filofax {
+    return 301 /filofax/;
+}
+
+location /filofax/ {
+    proxy_pass http://127.0.0.1:8002/;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_read_timeout 600s;
+    proxy_connect_timeout 60s;
+    proxy_send_timeout 600s;
+}
