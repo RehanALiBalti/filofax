@@ -74,9 +74,27 @@ systemctl reload nginx
 
 systemctl enable filofax-backend 2>/dev/null || true
 systemctl restart filofax-backend
+sleep 2
+
+if ! systemctl is-active --quiet filofax-backend; then
+  echo "ERROR: filofax-backend is not running"
+  systemctl status filofax-backend --no-pager -l || true
+  journalctl -u filofax-backend -n 40 --no-pager || true
+  echo ""
+  echo "Quick fix attempts:"
+  echo "  sudo -u www-data /opt/filofax/.venv/bin/pip install -r /opt/filofax/requirements.txt"
+  echo "  sudo systemctl restart filofax-backend"
+  exit 1
+fi
 
 echo "==> Local Host-header checks"
-curl -sf -H "Host: $SUBDOMAIN" "http://127.0.0.1/api/health" && echo "  API OK" || echo "  API FAILED"
+if curl -sf "http://127.0.0.1:8002/api/health" >/dev/null; then
+  echo "  Direct :8002 OK"
+else
+  echo "  Direct :8002 FAILED"
+  journalctl -u filofax-backend -n 30 --no-pager || true
+fi
+curl -sf -H "Host: $SUBDOMAIN" "http://127.0.0.1/api/health" && echo "  API via nginx OK" || echo "  API via nginx FAILED"
 TITLE=$(curl -sS -H "Host: $SUBDOMAIN" "http://127.0.0.1/" | grep -oi '<title>[^<]*</title>' | head -1 || true)
 echo "    Page title: ${TITLE:-unknown}"
 
