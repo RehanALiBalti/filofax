@@ -72,9 +72,10 @@ API + UI: **http://127.0.0.1:8002**
 
 ### Production (Ubuntu server)
 
-See **[deploy/DEPLOY.md](deploy/DEPLOY.md)** — same host as JAMS/CV Builder:
+See **[deploy/DEPLOY.md](deploy/DEPLOY.md)**
 
-**http://65.108.236.135/filofax/**
+**Primary:** http://filofax.buzzwaretech.com/  
+Optional IP path: http://65.108.236.135/filofax/
 
 ### 3. Environment
 
