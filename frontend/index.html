@@ -264,8 +264,22 @@
     async function chat(message, confirm = false) {
       sendBtn.disabled = true;
       try {
-        const body = { message, user_id: userId, confirm };
-        if (confirm && pendingEvent) body.pending_event = pendingEvent;
+        const confirmWords = new Set([
+          "yes", "y", "ok", "okay", "confirm", "haan", "han", "ji", "ha",
+          "sure", "create", "save", "sí", "si", "oui", "ja", "sim",
+        ]);
+        const normalized = message.trim().toLowerCase();
+        const isConfirm = Boolean(
+          confirm || (pendingEvent && confirmWords.has(normalized))
+        );
+        const body = {
+          message,
+          user_id: userId,
+          confirm: isConfirm,
+        };
+        // Always send draft so "yes" / follow-ups keep previous fields
+        if (pendingEvent) body.pending_event = pendingEvent;
+
         const res = await fetch(`${API}/api/assistant/chat`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -285,8 +299,12 @@
               `• ${e.label} — ${e.event_date}${e.event_time ? " " + String(e.event_time).slice(0,5) : ""} (${e.category})`
             ).join("\n"), "bot");
           }
+        } else if (data.pending_event) {
+          setPending(data.pending_event);
         } else if (data.missing_fields?.length) {
-          setPending(data.pending_event || null);
+          setPending(data.pending_event || pendingEvent);
+        } else if (data.intent === "cancel_event") {
+          setPending(null);
         }
       } catch (err) {
         addBubble("Request failed: " + err.message, "bot");

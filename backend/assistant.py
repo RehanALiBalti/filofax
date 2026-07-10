@@ -49,9 +49,26 @@ CONFIRM_WORDS = {
     "हां",
 }
 
+GREETING_WORDS = {
+    "hi",
+    "hello",
+    "hey",
+    "salam",
+    "salaam",
+    "assalam",
+    "asalam",
+    "aoa",
+    "hola",
+    "bonjour",
+}
+
 
 def _is_confirm(message: str) -> bool:
     return message.strip().lower() in {w.lower() for w in CONFIRM_WORDS} or message.strip() in CONFIRM_WORDS
+
+
+def _is_greeting(message: str) -> bool:
+    return message.strip().lower() in GREETING_WORDS
 
 
 def _event_summary(pending: dict[str, Any]) -> str:
@@ -93,6 +110,18 @@ class AssistantService:
         # Explicit confirmation of a previously proposed event
         if pending_event and (confirm or _is_confirm(text)):
             return self._commit_pending(db, user_id=user_id, pending=pending_event)
+
+        # Short greetings — do not send to the model as "unclear"
+        if _is_greeting(text) and not pending_event:
+            lang = default_language()
+            return AssistantResponse(
+                ok=True,
+                intent="clarify",
+                language=lang,
+                confidence=1.0,
+                message=help_message(lang),
+                requires_clarification=True,
+            )
 
         try:
             ai_result = self.ai.parse_message(text)
