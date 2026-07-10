@@ -7,8 +7,9 @@ from typing import Any
 
 from dateutil import parser as date_parser
 
-from backend.config import ALLOWED_CATEGORIES, REQUIRED_CREATE_FIELDS
+from backend.config import ALLOWED_CATEGORIES, ASK_FIELD_ORDER, REQUIRED_CREATE_FIELDS
 from backend.language import (
+    ask_next_field_message,
     help_message,
     missing_fields_message,
     normalize_language,
@@ -142,6 +143,12 @@ def validate_ai_response(ai: AIResponse) -> ValidationResult:
     )
 
 
+def _ordered_missing(fields: list[str]) -> list[str]:
+    """Keep only required fields, in ask order (date → time → category → label)."""
+    present = {f for f in fields if f in REQUIRED_CREATE_FIELDS}
+    return [f for f in ASK_FIELD_ORDER if f in present]
+
+
 def _validate_create(
     event: AIEventPayload | None,
     language: LanguageInfo,
@@ -151,7 +158,7 @@ def _validate_create(
     requires_confirmation: bool,
 ) -> ValidationResult:
     errors: list[str] = []
-    missing = [f for f in (ai_missing or []) if f in REQUIRED_CREATE_FIELDS or f == "time"]
+    missing = [f for f in (ai_missing or []) if f in REQUIRED_CREATE_FIELDS]
     payload = event or AIEventPayload()
 
     parsed_date = _parse_date(payload.date)
@@ -163,6 +170,8 @@ def _validate_create(
     parsed_time = _parse_time(payload.time)
     if payload.time and parsed_time is None:
         errors.append("Invalid time")
+        if "time" not in missing:
+            missing.append("time")
 
     label = _clean_str(payload.label)
     category = _normalize_category(payload.category)
@@ -175,17 +184,14 @@ def _validate_create(
 
     if parsed_date is None and "date" not in missing:
         missing.append("date")
-    if not label and "label" not in missing:
-        missing.append("label")
+    if parsed_time is None and "time" not in missing:
+        missing.append("time")
     if category is None and "category" not in missing:
         missing.append("category")
+    if not label and "label" not in missing:
+        missing.append("label")
 
-    seen: set[str] = set()
-    missing_unique: list[str] = []
-    for field in missing:
-        if field not in seen and field in (*REQUIRED_CREATE_FIELDS, "time"):
-            seen.add(field)
-            missing_unique.append(field)
+    missing_unique = _ordered_missing(missing)
 
     normalized = {
         "date": parsed_date.isoformat() if parsed_date else None,
@@ -209,7 +215,8 @@ def _validate_create(
         )
 
     if missing_unique:
-        ask = clarification or missing_fields_message(missing_unique, language)
+        next_field = missing_unique[0]
+        ask = clarification or ask_next_field_message(next_field, language)
         return ValidationResult(
             ok=True,
             intent="create_event",
@@ -219,16 +226,20 @@ def _validate_create(
             event=normalized,
             message=ask,
             requires_clarification=True,
+            requires_confirmation=False,
         )
 
+    # Complete — backend auto-saves (no user confirmation wait)
+    _ = requires_confirmation  # ignored: Blueline-style auto add_reminder
     return ValidationResult(
         ok=True,
         intent="create_event",
         language=language,
         confidence=confidence,
         event=normalized,
-        message=clarification or "Ready to create this event.",
-        requires_confirmation=True if requires_confirmation or not missing_unique else False,
+        message=clarification or "Got it! I've added your event.",
+        requires_confirmation=False,
+        requires_clarification=False,
     )
 
 
@@ -317,6 +328,9 @@ def pending_event_to_create_kwargs(pending: dict[str, Any], user_id: str) -> dic
     event_date = _parse_date(pending.get("date"))
     if event_date is None:
         raise ValueError("date is required")
+    event_time = _parse_time(pending.get("time"))
+    if event_time is None:
+        raise ValueError("time is required")
     label = _clean_str(pending.get("label"))
     category = _normalize_category(pending.get("category"))
     if not label:
@@ -326,7 +340,7 @@ def pending_event_to_create_kwargs(pending: dict[str, Any], user_id: str) -> dic
     return {
         "user_id": user_id,
         "event_date": event_date,
-        "event_time": _parse_time(pending.get("time")),
+        "event_time": event_time,
         "label": label,
         "category": category,
         "notes": _clean_str(pending.get("notes")),

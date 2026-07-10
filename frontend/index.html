@@ -191,8 +191,7 @@
         <h2>Assistant</h2>
         <div id="log"></div>
         <div class="actions" id="confirmBar" hidden>
-          <button type="button" class="ghost" id="confirmBtn">Confirm create</button>
-          <button type="button" id="cancelBtn">Cancel</button>
+          <button type="button" id="cancelBtn">Cancel draft</button>
         </div>
         <form id="chatForm">
           <input id="message" type="text" placeholder="e.g. Kal 4 baje meeting add kar do · Mañana a las 4 · 明天下午四点" autocomplete="off" required />
@@ -222,7 +221,6 @@
     const input = document.getElementById("message");
     const sendBtn = document.getElementById("sendBtn");
     const confirmBar = document.getElementById("confirmBar");
-    const confirmBtn = document.getElementById("confirmBtn");
     const cancelBtn = document.getElementById("cancelBtn");
     const healthEl = document.getElementById("health");
     const dot = document.getElementById("dot");
@@ -264,20 +262,11 @@
     async function chat(message, confirm = false) {
       sendBtn.disabled = true;
       try {
-        const confirmWords = new Set([
-          "yes", "y", "ok", "okay", "confirm", "haan", "han", "ji", "ha",
-          "sure", "create", "save", "sí", "si", "oui", "ja", "sim",
-        ]);
-        const normalized = message.trim().toLowerCase();
-        const isConfirm = Boolean(
-          confirm || (pendingEvent && confirmWords.has(normalized))
-        );
         const body = {
           message,
           user_id: userId,
-          confirm: isConfirm,
+          confirm: Boolean(confirm),
         };
-        // Always send draft so "yes" / follow-ups keep previous fields
         if (pendingEvent) body.pending_event = pendingEvent;
 
         const res = await fetch(`${API}/api/assistant/chat`, {
@@ -287,24 +276,21 @@
         });
         const data = await res.json();
         addBubble(data.message || JSON.stringify(data), "bot");
-        if (data.needs_confirmation && data.pending_event) {
-          setPending(data.pending_event);
-        } else if (data.event) {
+        if (data.event) {
           setPending(null);
           await refreshEvents();
         } else if (data.intent === "search_events") {
-          setPending(null);
           if (data.events?.length) {
             addBubble(data.events.map((e) =>
               `• ${e.label} — ${e.event_date}${e.event_time ? " " + String(e.event_time).slice(0,5) : ""} (${e.category})`
             ).join("\n"), "bot");
           }
+        } else if (data.intent === "cancel_event") {
+          setPending(null);
         } else if (data.pending_event) {
           setPending(data.pending_event);
         } else if (data.missing_fields?.length) {
           setPending(data.pending_event || pendingEvent);
-        } else if (data.intent === "cancel_event") {
-          setPending(null);
         }
       } catch (err) {
         addBubble("Request failed: " + err.message, "bot");
@@ -322,15 +308,10 @@
       await chat(text, false);
     });
 
-    confirmBtn.addEventListener("click", async () => {
+    cancelBtn.addEventListener("click", async () => {
       if (!pendingEvent) return;
-      addBubble("yes", "user");
-      await chat("yes", true);
-    });
-
-    cancelBtn.addEventListener("click", () => {
-      setPending(null);
-      addBubble("Cancelled.", "meta");
+      addBubble("cancel", "user");
+      await chat("cancel", false);
     });
 
     async function checkHealth() {
@@ -349,7 +330,7 @@
       }
     }
 
-    addBubble("Try any language: “Add a meeting tomorrow at 4 PM”, “Kal meeting add kar do”, or “Mañana tengo una cita”.", "bot");
+    addBubble("Create: date → time → category → label (or all in one message). Search anytime. Complete events save automatically.", "bot");
     checkHealth();
     refreshEvents();
   </script>

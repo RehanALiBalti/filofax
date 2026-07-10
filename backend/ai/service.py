@@ -55,12 +55,19 @@ class AIService:
 
     prompt_version = PROMPT_VERSION
 
-    def parse_message(self, message: str, *, today: date | None = None) -> AIResponse:
+    def parse_message(
+        self,
+        message: str,
+        *,
+        today: date | None = None,
+        conversation_context: dict[str, Any] | None = None,
+    ) -> AIResponse:
         today = today or date.today()
         user_prompt = build_user_prompt(
             message=message.strip(),
             today_iso=today.isoformat(),
             weekday=today.strftime("%A"),
+            conversation_context=conversation_context,
         )
         try:
             raw_text = ollama_client.generate_text(

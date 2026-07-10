@@ -7,7 +7,7 @@ from backend.models import AIEventPayload, AIFiltersPayload, AIResponse, Languag
 from backend.validators import merge_pending_event, validate_ai_response
 
 
-def test_create_complete():
+def test_create_complete_autosave_ready():
     ai = AIResponse(
         intent="create_event",
         language={"code": "en", "name": "English", "is_mixed": False},
@@ -19,7 +19,7 @@ def test_create_complete():
             notes=None,
         ),
         missing_fields=[],
-        requires_confirmation=True,
+        requires_confirmation=False,
         confidence=0.96,
     )
     result = validate_ai_response(ai)
@@ -28,7 +28,28 @@ def test_create_complete():
     assert result.event["category"] == "Appointment"
     assert result.event["time"] == "16:00"
     assert result.language.code == "en"
-    assert result.requires_confirmation
+    assert result.requires_confirmation is False
+    assert result.requires_clarification is False
+
+
+def test_create_missing_time_asks_next():
+    ai = AIResponse(
+        intent="create_event",
+        language={"code": "ur-Latn", "name": "Roman Urdu", "is_mixed": True},
+        event=AIEventPayload(
+            date="2026-07-11",
+            time=None,
+            label="Meeting",
+            category="Appointment",
+            notes=None,
+        ),
+        missing_fields=["time"],
+        confidence=0.9,
+    )
+    result = validate_ai_response(ai)
+    assert result.ok
+    assert result.missing_fields[0] == "time"
+    assert result.requires_clarification
 
 
 def test_create_missing_category_roman_urdu():
@@ -37,7 +58,7 @@ def test_create_missing_category_roman_urdu():
         language={"code": "ur-Latn", "name": "Roman Urdu", "is_mixed": True},
         event=AIEventPayload(
             date="2026-07-11",
-            time=None,
+            time="16:00",
             label="Meeting",
             category=None,
             notes=None,
@@ -49,7 +70,6 @@ def test_create_missing_category_roman_urdu():
     assert result.ok
     assert "category" in result.missing_fields
     assert result.language.code == "ur-Latn"
-    assert "detail" in result.message.lower() or "category" in result.message.lower()
 
 
 def test_search_filters():
@@ -76,6 +96,7 @@ def test_invalid_category():
         language="english",
         event=AIEventPayload(
             date="2026-07-11",
+            time="10:00",
             label="Thing",
             category="Party",
         ),

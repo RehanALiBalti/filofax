@@ -40,18 +40,18 @@ _CONFIRM_TEMPLATES: dict[str, str] = {
 }
 
 _CREATED_TEMPLATES: dict[str, str] = {
-    "en": "Event created: {label}.",
-    "ur-Latn": "Event save ho gaya: {label}.",
-    "ur": "ایونٹ محفوظ ہو گیا: {label}۔",
-    "hi-Latn": "Event save ho gaya: {label}.",
-    "hi": "इवेंट सेव हो गया: {label}।",
-    "es": "Evento creado: {label}.",
-    "fr": "Événement créé : {label}.",
-    "ar": "تم إنشاء الحدث: {label}.",
-    "zh": "已创建事件：{label}。",
-    "de": "Ereignis erstellt: {label}.",
-    "pt": "Evento criado: {label}.",
-    "mixed": "Event created: {label}.",
+    "en": "Got it! I've added your event: {label}.",
+    "ur-Latn": "Ho gaya! Event add ho gaya: {label}.",
+    "ur": "ہو گیا! آپ کا ایونٹ شامل کر دیا گیا: {label}۔",
+    "hi-Latn": "Ho gaya! Event add ho gaya: {label}.",
+    "hi": "हो गया! आपका इवेंट जोड़ दिया गया: {label}।",
+    "es": "¡Listo! He añadido tu evento: {label}.",
+    "fr": "C'est noté ! J'ai ajouté votre événement : {label}.",
+    "ar": "تم! أضفت حدثك: {label}.",
+    "zh": "好的！已添加事件：{label}。",
+    "de": "Erledigt! Ereignis hinzugefügt: {label}.",
+    "pt": "Pronto! Adicionei seu evento: {label}.",
+    "mixed": "Got it! I've added your event: {label}.",
 }
 
 _SEARCH_TEMPLATES: dict[str, str] = {
@@ -84,17 +84,40 @@ _UNCLEAR_TEMPLATES: dict[str, str] = {
 }
 
 _HELP_TEMPLATES: dict[str, str] = {
-    "en": "I can help you create or search events. Try: 'Add a meeting tomorrow at 4 PM'.",
-    "ur-Latn": "Main events create ya search kar sakta hoon. Maslan: 'Kal 4 baje meeting add kar do'.",
-    "ur": "میں ایونٹ بنانے یا تلاش کرنے میں مدد کر سکتا ہوں۔",
-    "hi-Latn": "Main events create ya search kar sakta hoon.",
-    "hi": "मैं इवेंट बनाने या खोजने में मदद कर सकता हूँ।",
-    "es": "Puedo ayudarle a crear o buscar eventos.",
-    "fr": "Je peux vous aider à créer ou rechercher des événements.",
-    "ar": "يمكنني مساعدتك في إنشاء الأحداث أو البحث عنها.",
-    "zh": "我可以帮您创建或搜索事件。",
-    "mixed": "I can help you create or search events.",
-    "und": "I can help you create or search events. Please rephrase if needed.",
+    "en": "I can create or search events. Tell me the date, or say something like 'Add a meeting tomorrow at 4 PM'. Categories: To Do, Appointment, Important.",
+    "ur-Latn": "Main event create ya search kar sakta hoon. Pehle date bata dein, ya 'Kal 4 baje meeting add kar do' likhein. Categories: To Do, Appointment, Important.",
+    "ur": "میں ایونٹ بنا یا تلاش کر سکتا ہوں۔ تاریخ بتائیں یا مکمل تفصیل لکھیں۔",
+    "hi-Latn": "Main event create ya search kar sakta hoon. Pehle date bataiye.",
+    "hi": "मैं इवेंट बना या खोज सकता हूँ। पहले तारीख बताएँ।",
+    "es": "Puedo crear o buscar eventos. Empiece por la fecha.",
+    "fr": "Je peux créer ou rechercher des événements. Commencez par la date.",
+    "ar": "يمكنني إنشاء الأحداث أو البحث عنها. ابدأ بالتاريخ.",
+    "zh": "我可以创建或搜索事件。请先告诉我日期。",
+    "mixed": "I can create or search events. Start with the date.",
+    "und": "I can create or search events. Start with the date.",
+}
+
+_ASK_NEXT: dict[str, dict[str, str]] = {
+    "date": {
+        "en": "What date should I set for the event?",
+        "ur-Latn": "Event kis date ko rakhna hai?",
+        "ur": "ایونٹ کس تاریخ کو رکھنا ہے؟",
+    },
+    "time": {
+        "en": "What time should the event be?",
+        "ur-Latn": "Event kis waqt ka hai?",
+        "ur": "ایونٹ کس وقت کا ہے؟",
+    },
+    "category": {
+        "en": "Which category? To Do, Appointment, or Important?",
+        "ur-Latn": "Category kya hai? To Do, Appointment, ya Important?",
+        "ur": "زمرہ کیا ہے؟ To Do، Appointment، یا Important؟",
+    },
+    "label": {
+        "en": "What should I label this event?",
+        "ur-Latn": "Event ka label / title kya rakhein?",
+        "ur": "ایونٹ کا عنوان کیا رکھیں؟",
+    },
 }
 
 _FIELD_LABELS: dict[str, dict[str, str]] = {
@@ -200,3 +223,10 @@ def unclear_message(language: LanguageInfo) -> str:
 
 def help_message(language: LanguageInfo) -> str:
     return _template(_HELP_TEMPLATES, language)
+
+
+def ask_next_field_message(field: str, language: LanguageInfo) -> str:
+    table = _ASK_NEXT.get(field) or _ASK_NEXT["date"]
+    code = (language.code or "en").strip()
+    primary = code.split("-")[0]
+    return table.get(code) or table.get(primary) or table.get("en") or f"Please provide {field}."

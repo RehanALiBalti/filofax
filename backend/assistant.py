@@ -1,4 +1,4 @@
-"""Orchestrates AI parsing → validation → confirmation → DB operations."""
+"""Orchestrates AI parsing → validation → auto-save / search (Blueline-style tools)."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ from sqlalchemy.orm import Session
 
 from backend.ai.service import AIService, AIServiceError, ai_service
 from backend import event_service
+from backend.config import ASK_FIELD_ORDER
 from backend.language import (
-    confirm_message,
     created_message,
     default_language,
     help_message,
@@ -62,6 +62,15 @@ GREETING_WORDS = {
     "bonjour",
 }
 
+CANCEL_WORDS = {
+    "cancel",
+    "no",
+    "nah",
+    "rehne do",
+    "mat karo",
+    "stop",
+}
+
 
 def _is_confirm(message: str) -> bool:
     return message.strip().lower() in {w.lower() for w in CONFIRM_WORDS} or message.strip() in CONFIRM_WORDS
@@ -71,16 +80,19 @@ def _is_greeting(message: str) -> bool:
     return message.strip().lower() in GREETING_WORDS
 
 
-def _event_summary(pending: dict[str, Any]) -> str:
-    parts = [
-        pending.get("label") or "Event",
-        pending.get("date") or "?",
-    ]
-    if pending.get("time"):
-        parts.append(pending["time"])
-    if pending.get("category"):
-        parts.append(pending["category"])
-    return " · ".join(str(p) for p in parts)
+def _is_cancel(message: str) -> bool:
+    text = message.strip().lower()
+    return text in CANCEL_WORDS or text.startswith("cancel")
+
+
+def _missing_from_event(event: dict[str, Any] | None) -> list[str]:
+    event = event or {}
+    missing = []
+    for field in ASK_FIELD_ORDER:
+        value = event.get(field)
+        if value is None or str(value).strip() == "" or str(value).lower() == "null":
+            missing.append(field)
+    return missing
 
 
 class AssistantService:
@@ -107,11 +119,23 @@ class AssistantService:
                 message=help_message(lang),
             )
 
-        # Explicit confirmation of a previously proposed event
-        if pending_event and (confirm or _is_confirm(text)):
-            return self._commit_pending(db, user_id=user_id, pending=pending_event)
+        if pending_event and _is_cancel(text):
+            lang = default_language()
+            return AssistantResponse(
+                ok=True,
+                intent="cancel_event",
+                language=lang,
+                confidence=1.0,
+                message="Cancelled. No event was saved.",
+                pending_event=None,
+            )
 
-        # Short greetings — do not send to the model as "unclear"
+        # Legacy: if client still sends confirm + complete draft, save it
+        if pending_event and (confirm or _is_confirm(text)):
+            missing = _missing_from_event(pending_event)
+            if not missing:
+                return self._commit_pending(db, user_id=user_id, pending=pending_event)
+
         if _is_greeting(text) and not pending_event:
             lang = default_language()
             return AssistantResponse(
@@ -123,8 +147,16 @@ class AssistantService:
                 requires_clarification=True,
             )
 
+        context = None
+        if pending_event:
+            context = {
+                "intent": "create_event",
+                "event": pending_event,
+                "missing_fields": _missing_from_event(pending_event),
+            }
+
         try:
-            ai_result = self.ai.parse_message(text)
+            ai_result = self.ai.parse_message(text, conversation_context=context)
         except AIServiceError as exc:
             lang = default_language()
             return AssistantResponse(
@@ -135,29 +167,24 @@ class AssistantService:
                 message=f"AI service error: {exc}",
             )
 
-        # Prefer AI clarification language; never reject on language.
         language = normalize_language(ai_result.language)
-        # Keep AIResponse.language normalized for API consumers
         ai_result.language = language
-
         validated = validate_ai_response(ai_result)
         language = validated.language
 
-        if validated.event is not None and pending_event:
-            validated.event = merge_pending_event(pending_event, validated.event)
-            # Re-check missing fields after merge
-            missing = [
-                f
-                for f in ("date", "label", "category")
-                if not validated.event.get(f)
-            ]
-            validated.missing_fields = missing
-            if missing:
-                validated.requires_confirmation = False
-                validated.requires_clarification = True
-            elif validated.intent == "create_event":
-                validated.requires_confirmation = True
-                validated.requires_clarification = False
+        if validated.intent == "create_event" or (pending_event and validated.event is not None):
+            if validated.event is not None or pending_event:
+                merged = merge_pending_event(pending_event, validated.event)
+                validated.event = merged
+                validated.intent = "create_event"
+                missing = _missing_from_event(merged)
+                validated.missing_fields = missing
+                if missing:
+                    validated.requires_confirmation = False
+                    validated.requires_clarification = True
+                else:
+                    validated.requires_confirmation = False
+                    validated.requires_clarification = False
 
         if not validated.ok:
             return AssistantResponse(
@@ -173,7 +200,9 @@ class AssistantService:
                 ai=ai_result,
             )
 
-        if validated.intent in ("unclear", "clarify"):
+        if validated.intent in ("unclear", "clarify", "unknown") and not (
+            pending_event and validated.event
+        ):
             return AssistantResponse(
                 ok=True,
                 intent=validated.intent,
@@ -186,7 +215,7 @@ class AssistantService:
             )
 
         if validated.intent == "create_event":
-            return self._handle_create(db, user_id, validated, ai_result, confirm)
+            return self._handle_create(db, user_id, validated, ai_result)
 
         if validated.intent == "search_events":
             return self._handle_search(db, user_id, validated, ai_result)
@@ -208,38 +237,26 @@ class AssistantService:
         user_id: str,
         validated: Any,
         ai_result: Any,
-        confirm: bool,
     ) -> AssistantResponse:
         pending = validated.event or {}
         language: LanguageInfo = validated.language
+        missing = validated.missing_fields or _missing_from_event(pending)
 
-        if validated.missing_fields:
+        if missing:
             return AssistantResponse(
                 ok=True,
                 intent="create_event",
                 language=language,
                 confidence=validated.confidence,
                 message=validated.message or "More details needed.",
-                missing_fields=validated.missing_fields,
+                missing_fields=missing,
                 needs_confirmation=False,
                 requires_clarification=True,
                 pending_event=pending,
                 ai=ai_result,
             )
 
-        if not confirm:
-            return AssistantResponse(
-                ok=True,
-                intent="create_event",
-                language=language,
-                confidence=validated.confidence,
-                message=confirm_message(_event_summary(pending), language),
-                needs_confirmation=True,
-                requires_clarification=False,
-                pending_event=pending,
-                ai=ai_result,
-            )
-
+        # Complete → immediately save (add_reminder tool equivalent)
         return self._commit_pending(
             db,
             user_id=user_id,
@@ -281,6 +298,8 @@ class AssistantService:
             language=lang,
             confidence=confidence,
             message=created_message(event.label, lang),
+            needs_confirmation=False,
+            requires_clarification=False,
             event=EventOut.model_validate(event),
             ai=ai_result,
         )
@@ -307,6 +326,7 @@ class AssistantService:
                 ai=ai_result,
             )
 
+        # Always call search (search_reminder tool equivalent) and return events array
         events = event_service.search_events(db, user_id, filters)
         return AssistantResponse(
             ok=True,

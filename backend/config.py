@@ -34,7 +34,9 @@ CORS_ORIGINS = [
 ]
 
 ALLOWED_CATEGORIES = ("To Do", "Appointment", "Important")
-REQUIRED_CREATE_FIELDS = ("date", "label", "category")
+# Blueline-style reminder fields — all required before auto-save
+REQUIRED_CREATE_FIELDS = ("date", "time", "category", "label")
+ASK_FIELD_ORDER = ("date", "time", "category", "label")
 
 
 def ai_base_url() -> str:
