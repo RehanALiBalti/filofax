@@ -118,6 +118,48 @@ def _parse_flexible_time(text: str) -> str | None:
     return None
 
 
+def message_has_explicit_date(text: str) -> bool:
+    """True only when the user clearly stated a calendar date (not place names, etc.)."""
+    lower = text.strip().lower()
+    if not lower:
+        return False
+    cues = [
+        r"\btoday\b",
+        r"\baaj\b",
+        r"\btomorrow\b",
+        r"\bkal\b",
+        r"\bparso\b",
+        r"\byesterday\b",
+        r"\bnext\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b",
+        r"\bthis\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b",
+        r"\bon\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b",
+        r"\b20\d{2}-\d{2}-\d{2}\b",
+        r"\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b",
+        r"\b(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\s+\d{1,2}\b",
+        r"\b\d{1,2}\s+(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\b",
+    ]
+    return any(re.search(p, lower) for p in cues)
+
+
+def scrub_invented_date(
+    draft: dict[str, Any],
+    message: str,
+    *,
+    trusted_pending: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """
+    Drop AI-guessed dates when the user never stated a date.
+    Keep date if it was already confirmed in a previous turn (trusted_pending).
+    """
+    out = dict(draft)
+    if trusted_pending and trusted_pending.get("date"):
+        out["date"] = trusted_pending["date"]
+        return out
+    if out.get("date") and not message_has_explicit_date(message):
+        out["date"] = None
+    return out
+
+
 def enrich_draft_from_message(
     draft: dict[str, Any],
     message: str,
@@ -130,15 +172,14 @@ def enrich_draft_from_message(
     text = message.strip()
     if not text:
         return out
+    lower = text.lower()
 
     if not out.get("time"):
         value = _parse_flexible_time(text)
         if value:
             out["time"] = value
 
-    if not out.get("date"):
-        # Only use relative words / clear dates in longer sentences
-        lower = text.lower()
+    if not out.get("date") and message_has_explicit_date(text):
         for token in ("today", "aaj", "tomorrow", "kal", "parso", "yesterday"):
             if re.search(rf"\b{re.escape(token)}\b", lower):
                 value = _parse_relative_date(token, today)
@@ -146,10 +187,24 @@ def enrich_draft_from_message(
                     out["date"] = value.isoformat()
                     break
         if not out.get("date"):
-            # ISO date in text
             m = re.search(r"\b(20\d{2}-\d{2}-\d{2})\b", text)
             if m:
                 out["date"] = m.group(1)
+        if not out.get("date"):
+            for name in (
+                "monday",
+                "tuesday",
+                "wednesday",
+                "thursday",
+                "friday",
+                "saturday",
+                "sunday",
+            ):
+                if name in lower:
+                    value = _parse_relative_date(text, today)
+                    if value:
+                        out["date"] = value.isoformat()
+                    break
 
     if not out.get("category"):
         value = _parse_category_reply(text)
@@ -157,16 +212,33 @@ def enrich_draft_from_message(
             out["category"] = value
 
     if not out.get("label"):
-        # Light label heuristics for reminder phrases
-        lower = text.lower()
-        if "remind" in lower:
+        m = re.search(
+            r"(?:label|title)\s+(?:will\s+be|is|:)\s*([^.?\n]+)",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if m:
+            out["label"] = m.group(1).strip(" .")[:255]
+        elif "remind" in lower:
             out["label"] = "Reminder"
         elif "meeting" in lower:
             out["label"] = "Meeting"
         elif "appointment" in lower:
             out["label"] = "Appointment"
 
-    return out
+    if not out.get("notes"):
+        m = re.search(
+            r"(?:place|location|venue)\s+(?:of\s+meeting\s+)?(?:will\s+be|is|:)\s*([^.?\n]+)",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if m:
+            place = m.group(1).strip(" .")
+            place = re.split(r"\s+and\s+the\s+label\b", place, flags=re.IGNORECASE)[0].strip(" .")
+            if place:
+                out["notes"] = place[:500]
+
+    return scrub_invented_date(out, text)
 
 
 def _parse_category_reply(text: str) -> str | None:

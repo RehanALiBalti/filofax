@@ -22,7 +22,7 @@ def test_fill_time_variants():
         ("4 PM", "16:00"),
         ("4:00 pm", "16:00"),
         ("16:00", "16:00"),
-        ("4 baje", "04:00"),  # no am/pm → 24h hour as given
+        ("4 baje", "04:00"),
         ("sham 4 baje", "16:00"),
     ):
         out = apply_slot_reply(pending=draft, message=msg, field="time", today=TODAY)
@@ -54,8 +54,36 @@ def test_parse_nine_pm_from_sentence():
     out = enrich_draft_from_message(empty_draft(), msg, today=TODAY)
     assert out["time"] == "21:00"
     assert out["label"] == "Reminder"
-    # Date still missing — should ask date next, NOT time again
     assert next_missing(out) == "date"
+
+
+def test_no_date_guess_when_only_time_and_place():
+    from backend.slot_fill import (
+        enrich_draft_from_message,
+        empty_draft,
+        scrub_invented_date,
+    )
+
+    msg = (
+        "Hello, Assalamu alaikum. I want to add a meeting at 9 p.m. "
+        "The place of meeting will be Karachi and the label will be Karachi meeting."
+    )
+    drafted = {
+        "date": "2026-07-13",
+        "time": "21:00",
+        "label": "Karachi meeting",
+        "category": None,
+        "notes": "Karachi",
+    }
+    cleaned = scrub_invented_date(drafted, msg)
+    assert cleaned["date"] is None
+    assert cleaned["time"] == "21:00"
+    enriched = enrich_draft_from_message(empty_draft(), msg, today=TODAY)
+    assert enriched["time"] == "21:00"
+    assert enriched["label"] == "Karachi meeting"
+    assert enriched["notes"] == "Karachi"
+    assert enriched["date"] is None
+    assert next_missing(enriched) == "date"
 
 
 def test_relative_date_kal():

@@ -23,6 +23,7 @@ Required create fields: date, time, category, label.
 Notes are optional.
 When ANY required field is missing, put it in missing_fields and ask for the NEXT missing field in order (date, then time, then category, then label) via "clarification" in the user's language.
 Do NOT invent missing values.
+CRITICAL: Never invent a date. If the user did not clearly say today/tomorrow/kal/a weekday/an explicit calendar date, set date to null and put "date" in missing_fields.
 
 IMPORTANT — auto-save signal:
 When date, time, category, and label are ALL present, set:

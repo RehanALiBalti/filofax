@@ -28,6 +28,7 @@ from backend.slot_fill import (
     merge_ai_into_draft,
     missing_fields,
     next_missing,
+    scrub_invented_date,
 )
 from backend.validators import pending_event_to_create_kwargs, validate_ai_response
 
@@ -40,6 +41,8 @@ GREETING_WORDS = {
     "salaam",
     "assalam",
     "asalam",
+    "assalamu alaikum",
+    "assalamualaikum",
     "aoa",
     "hola",
     "bonjour",
@@ -148,6 +151,8 @@ class AssistantService:
         )):
             merged = merge_ai_into_draft(draft, validated.event)
             merged = enrich_draft_from_message(merged, text)
+            # Never keep an AI-guessed date when user did not state one
+            merged = scrub_invented_date(merged, text, trusted_pending=pending_event)
             return self._finish_or_ask(db, user_id, merged, language, validated.confidence, ai_result)
 
         # Unclear start — begin create flow by asking for date
@@ -168,6 +173,7 @@ class AssistantService:
             )
             if any(h in lower for h in create_hints):
                 draft = enrich_draft_from_message(empty_draft(), text)
+                draft = scrub_invented_date(draft, text)
                 return self._finish_or_ask(db, user_id, draft, language, 0.7, ai_result)
             return AssistantResponse(
                 ok=True,
