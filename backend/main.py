@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Optional
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -21,6 +22,8 @@ from backend.config import (
     APP_ROOT,
     CORS_ORIGINS,
     DEFAULT_USER_ID,
+    VOICE_ENABLED,
+    VOICE_MAX_BYTES,
 )
 from backend.database import get_db, init_db
 from backend import event_service
@@ -31,6 +34,7 @@ from backend.models import (
     EventOut,
     EventUpdate,
 )
+from backend.voice import VoiceTranscriptionError, transcribe_audio_bytes, whisper_status
 
 FRONTEND_DIR = APP_ROOT / "frontend"
 
@@ -78,6 +82,7 @@ def health() -> dict:
         "model": AI_MODEL,
         "categories": list(ALLOWED_CATEGORIES),
         "languages": "open — any language/script the configured model understands",
+        "voice": whisper_status(),
         "ollama": runtime,
         "ai": runtime,
     }
@@ -85,13 +90,60 @@ def health() -> dict:
 
 @app.post("/api/assistant/chat", response_model=AssistantResponse)
 def assistant_chat(body: ChatRequest, db: Session = Depends(get_db)) -> AssistantResponse:
-    return assistant_service.handle_chat(
+    result = assistant_service.handle_chat(
         db,
         message=body.message,
         user_id=body.user_id or DEFAULT_USER_ID,
         confirm=body.confirm,
         pending_event=body.pending_event,
     )
+    return result.model_copy(update={"input_mode": "text"})
+
+
+@app.post("/api/assistant/voice", response_model=AssistantResponse)
+async def assistant_voice(
+    audio: UploadFile = File(...),
+    user_id: str = Form(DEFAULT_USER_ID),
+    confirm: bool = Form(False),
+    pending_event: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+) -> AssistantResponse:
+    """Voice note → local Whisper transcript → same assistant flow as text chat."""
+    if not VOICE_ENABLED:
+        raise HTTPException(status_code=503, detail="Voice is disabled on this server.")
+
+    data = await audio.read()
+    if not data:
+        raise HTTPException(status_code=422, detail="Empty audio file.")
+    if len(data) > VOICE_MAX_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Audio too large (max {VOICE_MAX_BYTES} bytes).",
+        )
+
+    pending: dict | None = None
+    if pending_event and pending_event.strip() and pending_event.strip().lower() != "null":
+        try:
+            parsed = json.loads(pending_event)
+            if isinstance(parsed, dict):
+                pending = parsed
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=422, detail="pending_event must be JSON object") from exc
+
+    try:
+        stt = transcribe_audio_bytes(data, filename=audio.filename or "audio.webm")
+    except VoiceTranscriptionError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    transcript = stt["transcript"]
+    result = assistant_service.handle_chat(
+        db,
+        message=transcript,
+        user_id=user_id or DEFAULT_USER_ID,
+        confirm=confirm,
+        pending_event=pending,
+    )
+    return result.model_copy(update={"transcript": transcript, "input_mode": "voice"})
 
 
 @app.get("/api/events", response_model=list[EventOut])

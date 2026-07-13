@@ -131,6 +131,7 @@
       gap: 0.5rem;
       padding: 0.9rem;
       border-top: 1px solid var(--line);
+      align-items: center;
     }
     input[type="text"] {
       flex: 1;
@@ -154,6 +155,24 @@
     button.ghost {
       background: var(--accent-soft);
       color: var(--accent);
+    }
+    button.mic {
+      background: var(--accent-soft);
+      color: var(--accent);
+      min-width: 3rem;
+      padding: 0.75rem 0.85rem;
+    }
+    button.mic.recording {
+      background: var(--danger);
+      color: #fff;
+      animation: pulse 1.2s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+    }
+    .bubble.voice::before {
+      content: "🎤 ";
     }
     #events {
       padding: 0.75rem 1rem 1rem;
@@ -182,7 +201,7 @@
   <div class="shell">
     <header>
       <h1>Filofax</h1>
-      <p>Create and search events in any language the local model understands — English, Urdu, Hindi, Spanish, Chinese, mixed text, and more. Nothing is written until you confirm.</p>
+      <p>Text ya voice note se events create/search karein. Voice server pe local Whisper se process hoti hai.</p>
       <div class="status"><span class="dot" id="dot"></span><span id="health">Checking AI runtime…</span></div>
     </header>
 
@@ -194,7 +213,8 @@
           <button type="button" id="cancelBtn">Cancel draft</button>
         </div>
         <form id="chatForm">
-          <input id="message" type="text" placeholder="e.g. Kal 4 baje meeting add kar do · Mañana a las 4 · 明天下午四点" autocomplete="off" required />
+          <input id="message" type="text" placeholder="Type… or tap 🎤 for voice note" autocomplete="off" />
+          <button type="button" class="mic" id="micBtn" title="Record voice note">🎤</button>
           <button type="submit" id="sendBtn">Send</button>
         </form>
       </section>
@@ -220,14 +240,20 @@
     const form = document.getElementById("chatForm");
     const input = document.getElementById("message");
     const sendBtn = document.getElementById("sendBtn");
+    const micBtn = document.getElementById("micBtn");
     const confirmBar = document.getElementById("confirmBar");
     const cancelBtn = document.getElementById("cancelBtn");
     const healthEl = document.getElementById("health");
     const dot = document.getElementById("dot");
 
-    function addBubble(text, who) {
+    let mediaRecorder = null;
+    let mediaStream = null;
+    let audioChunks = [];
+    let isRecording = false;
+
+    function addBubble(text, who, extraClass = "") {
       const div = document.createElement("div");
-      div.className = `bubble ${who}`;
+      div.className = `bubble ${who}${extraClass ? " " + extraClass : ""}`;
       div.textContent = text;
       logEl.appendChild(div);
       logEl.scrollTop = logEl.scrollHeight;
@@ -236,6 +262,28 @@
     function setPending(event) {
       pendingEvent = event;
       confirmBar.hidden = !event;
+    }
+
+    function applyAssistantResult(data) {
+      addBubble(data.message || JSON.stringify(data), "bot");
+      if (data.event) {
+        setPending(null);
+        return refreshEvents();
+      }
+      if (data.intent === "search_events") {
+        if (data.events?.length) {
+          addBubble(data.events.map((e) =>
+            `• ${e.label} — ${e.event_date}${e.event_time ? " " + String(e.event_time).slice(0,5) : ""} (${e.category})`
+          ).join("\n"), "bot");
+        }
+      } else if (data.intent === "cancel_event") {
+        setPending(null);
+      } else if (data.pending_event) {
+        setPending(data.pending_event);
+      } else if (data.missing_fields?.length) {
+        setPending(data.pending_event || pendingEvent);
+      }
+      return Promise.resolve();
     }
 
     async function refreshEvents() {
@@ -261,6 +309,7 @@
 
     async function chat(message, confirm = false) {
       sendBtn.disabled = true;
+      micBtn.disabled = true;
       try {
         const body = {
           message,
@@ -275,29 +324,100 @@
           body: JSON.stringify(body),
         });
         const data = await res.json();
-        addBubble(data.message || JSON.stringify(data), "bot");
-        if (data.event) {
-          setPending(null);
-          await refreshEvents();
-        } else if (data.intent === "search_events") {
-          if (data.events?.length) {
-            addBubble(data.events.map((e) =>
-              `• ${e.label} — ${e.event_date}${e.event_time ? " " + String(e.event_time).slice(0,5) : ""} (${e.category})`
-            ).join("\n"), "bot");
-          }
-        } else if (data.intent === "cancel_event") {
-          setPending(null);
-        } else if (data.pending_event) {
-          setPending(data.pending_event);
-        } else if (data.missing_fields?.length) {
-          setPending(data.pending_event || pendingEvent);
-        }
+        await applyAssistantResult(data);
       } catch (err) {
         addBubble("Request failed: " + err.message, "bot");
       } finally {
         sendBtn.disabled = false;
+        micBtn.disabled = false;
       }
     }
+
+    async function sendVoice(blob) {
+      sendBtn.disabled = true;
+      micBtn.disabled = true;
+      addBubble("Voice note… processing on server", "meta");
+      try {
+        const formData = new FormData();
+        formData.append("audio", blob, "note.webm");
+        formData.append("user_id", userId);
+        formData.append("confirm", "false");
+        if (pendingEvent) {
+          formData.append("pending_event", JSON.stringify(pendingEvent));
+        }
+        const res = await fetch(`${API}/api/assistant/voice`, {
+          method: "POST",
+          body: formData,
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          addBubble(data.detail || "Voice processing failed.", "bot");
+          return;
+        }
+        if (data.transcript) {
+          addBubble(data.transcript, "user", "voice");
+        }
+        await applyAssistantResult(data);
+      } catch (err) {
+        addBubble("Voice request failed: " + err.message, "bot");
+      } finally {
+        sendBtn.disabled = false;
+        micBtn.disabled = false;
+      }
+    }
+
+    async function startRecording() {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        addBubble("Microphone not supported in this browser.", "bot");
+        return;
+      }
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        audioChunks = [];
+        const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+          ? "audio/webm;codecs=opus"
+          : (MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "");
+        mediaRecorder = mime
+          ? new MediaRecorder(mediaStream, { mimeType: mime })
+          : new MediaRecorder(mediaStream);
+        mediaRecorder.ondataavailable = (e) => {
+          if (e.data && e.data.size > 0) audioChunks.push(e.data);
+        };
+        mediaRecorder.onstop = async () => {
+          mediaStream?.getTracks().forEach((t) => t.stop());
+          mediaStream = null;
+          const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType || "audio/webm" });
+          audioChunks = [];
+          if (blob.size < 200) {
+            addBubble("Voice note too short. Try again.", "bot");
+            return;
+          }
+          await sendVoice(blob);
+        };
+        mediaRecorder.start();
+        isRecording = true;
+        micBtn.classList.add("recording");
+        micBtn.textContent = "⏹";
+        micBtn.title = "Stop recording";
+        addBubble("Recording… tap ⏹ to send", "meta");
+      } catch (err) {
+        addBubble("Microphone permission denied or unavailable.", "bot");
+      }
+    }
+
+    function stopRecording() {
+      if (!mediaRecorder || mediaRecorder.state === "inactive") return;
+      isRecording = false;
+      micBtn.classList.remove("recording");
+      micBtn.textContent = "🎤";
+      micBtn.title = "Record voice note";
+      mediaRecorder.stop();
+    }
+
+    micBtn.addEventListener("click", async () => {
+      if (isRecording) stopRecording();
+      else await startRecording();
+    });
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -320,17 +440,22 @@
         const data = await res.json();
         const runtime = data.ai || data.ollama || {};
         const ollamaOk = runtime.ok && runtime.model_available;
+        const voice = data.voice || {};
         dot.classList.toggle("ok", !!ollamaOk);
         const model = data.ai_model || data.model;
-        healthEl.textContent = ollamaOk
+        let label = ollamaOk
           ? `Ready · ${data.ai_provider || "ollama"} · ${model}`
           : `API up · AI: ${runtime.error || "model not found — run ollama pull " + model}`;
+        if (voice.enabled) {
+          label += voice.ok ? ` · Voice: ${voice.model || "whisper"}` : " · Voice: setup needed";
+        }
+        healthEl.textContent = label;
       } catch {
         healthEl.textContent = "API unreachable";
       }
     }
 
-    addBubble("Create step-by-step: date → time → category → label. Missing cheezain clear hone tak poochta rahunga. Ya ek message me sab bhej dein.", "bot");
+    addBubble("Text ya 🎤 voice note: date → time → category → label. Missing clear hone tak poochta rahega.", "bot");
     checkHealth();
     refreshEvents();
   </script>

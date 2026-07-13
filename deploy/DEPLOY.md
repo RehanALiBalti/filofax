@@ -109,6 +109,24 @@ sudo SUBDOMAIN=filofax.buzzwaretech.com bash /opt/filofax/deploy/setup-subdomain
 
 ---
 
+## Voice notes
+
+UI mic button → browser records audio → `POST /api/assistant/voice` → local **faster-whisper** transcript → same create/search assistant flow.
+
+On the server:
+
+```bash
+sudo apt-get install -y ffmpeg
+cd /opt/filofax
+sudo -u www-data /opt/filofax/.venv/bin/pip install -r requirements.txt
+# first voice request downloads Whisper model weights (WHISPER_MODEL=base by default)
+sudo systemctl restart filofax-backend
+```
+
+Env (see `deploy/env.example`): `VOICE_ENABLED`, `WHISPER_MODEL`, `WHISPER_DEVICE`, `WHISPER_COMPUTE_TYPE`.
+
+---
+
 ## Useful commands
 
 ```bash

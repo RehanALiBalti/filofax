@@ -147,6 +147,8 @@ class AssistantResponse(BaseModel):
     events: list[EventOut] = Field(default_factory=list)
     filters: Optional[dict[str, Any]] = None
     ai: Optional[AIResponse] = None
+    transcript: Optional[str] = None
+    input_mode: Optional[str] = None  # "text" | "voice"
 
 
 def is_allowed_category(value: str | None) -> bool:

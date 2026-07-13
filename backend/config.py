@@ -38,6 +38,15 @@ ALLOWED_CATEGORIES = ("To Do", "Appointment", "Important")
 REQUIRED_CREATE_FIELDS = ("date", "time", "category", "label")
 ASK_FIELD_ORDER = ("date", "time", "category", "label")
 
+# Local speech-to-text (faster-whisper) — no paid cloud STT
+WHISPER_MODEL = os.getenv("WHISPER_MODEL", "base")
+WHISPER_DEVICE = os.getenv("WHISPER_DEVICE", "cpu")
+WHISPER_COMPUTE_TYPE = os.getenv("WHISPER_COMPUTE_TYPE", "int8")
+# Empty = auto-detect language (good for Urdu/English mix)
+WHISPER_LANGUAGE = os.getenv("WHISPER_LANGUAGE", "").strip() or None
+VOICE_MAX_BYTES = int(os.getenv("VOICE_MAX_BYTES", str(15 * 1024 * 1024)))
+VOICE_ENABLED = os.getenv("VOICE_ENABLED", "true").lower() in ("1", "true", "yes")
+
 
 def ai_base_url() -> str:
     """Resolve the AI runtime base URL (provider-agnostic)."""
