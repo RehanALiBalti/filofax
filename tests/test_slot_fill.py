@@ -119,3 +119,95 @@ def test_timer_is_nine_pm():
     )
     assert out is not None
     assert out["time"] == "21:00"
+
+
+def test_category_answer_keeps_existing_date():
+    from backend.slot_fill import enrich_draft_from_message, next_missing
+
+    draft = {
+        "date": "2027-06-20",
+        "time": "09:00",
+        "category": None,
+        "label": "Reminder",
+    }
+    out = apply_slot_reply(
+        pending=draft,
+        message="is important so please add in the important category.",
+        field="category",
+        today=TODAY,
+    )
+    assert out is not None
+    assert out["category"] == "Important"
+    enriched = enrich_draft_from_message(out, "is important so please add in the important category.", today=TODAY)
+    assert enriched["date"] == "2027-06-20"
+    assert enriched["time"] == "09:00"
+    assert enriched["category"] == "Important"
+    assert next_missing(enriched) is None or next_missing(enriched) == "label"
+    # label already set
+    assert next_missing(enriched) is None
+
+
+def test_year_only_not_accepted_as_date():
+    from backend.slot_fill import is_year_only_date
+
+    assert is_year_only_date("2027")
+    assert is_year_only_date("year 2027")
+    empty = {"date": None, "time": None, "category": None, "label": None}
+    assert apply_slot_reply(pending=empty, message="2027", field="date", today=TODAY) is None
+
+
+def test_scrub_keeps_date_when_answering_other_field():
+    from backend.slot_fill import enrich_draft_from_message
+
+    draft = {
+        "date": "2026-09-20",
+        "time": "21:00",
+        "category": None,
+        "label": "Reminder",
+    }
+    out = enrich_draft_from_message(draft, "Important", today=TODAY)
+    assert out["date"] == "2026-09-20"
+    assert out["category"] == "Important"
+
+
+def test_lock_keeps_date_after_time_answer():
+    from backend.slot_fill import enrich_draft_from_message, lock_confirmed_slots, next_missing
+
+    draft = {
+        "date": "2026-07-05",
+        "time": None,
+        "category": None,
+        "label": "Reminder",
+    }
+    filled = apply_slot_reply(pending=draft, message="9 pm", field="time", today=TODAY)
+    # Simulate a buggy scrub wiping date
+    wiped = dict(filled)
+    wiped["date"] = None
+    locked = lock_confirmed_slots(draft, wiped, allow_update={"time"})
+    assert locked["date"] == "2026-07-05"
+    assert locked["time"] == "21:00"
+    assert next_missing(locked) == "category"
+
+    # Full path like assistant
+    path = enrich_draft_from_message(filled, "9 pm", today=TODAY)
+    path = lock_confirmed_slots(draft, path, allow_update={"time"})
+    assert path["date"] == "2026-07-05"
+    assert next_missing(path) == "category"
+
+
+def test_todo_keeps_date_and_time():
+    from backend.slot_fill import enrich_draft_from_message, lock_confirmed_slots, next_missing
+
+    draft = {
+        "date": "2026-07-08",
+        "time": "21:00",
+        "category": None,
+        "label": "Reminder",
+    }
+    filled = apply_slot_reply(pending=draft, message="todo", field="category", today=TODAY)
+    enriched = enrich_draft_from_message(filled, "todo", today=TODAY)
+    locked = lock_confirmed_slots(draft, enriched, allow_update={"category"})
+    assert locked["date"] == "2026-07-08"
+    assert locked["time"] == "21:00"
+    assert locked["category"] == "To Do"
+    assert next_missing(locked) is None

@@ -20,15 +20,20 @@ from backend.language import (
     unclear_message,
 )
 from backend.models import AssistantResponse, EventOut, LanguageInfo
+from backend.draft_store import clear_draft, merge_client_pending, save_draft
 from backend.slot_fill import (
     apply_slot_reply,
     ask_again,
     empty_draft,
     enrich_draft_from_message,
+    is_soft_ack,
+    is_year_only_date,
+    lock_confirmed_slots,
     merge_ai_into_draft,
     missing_fields,
     next_missing,
     scrub_invented_date,
+    scrub_invented_time,
 )
 from backend.validators import pending_event_to_create_kwargs, validate_ai_response
 
@@ -97,9 +102,11 @@ class AssistantService:
                 message=help_message(lang),
             )
 
+        pending_event = merge_client_pending(user_id, pending_event)
         draft = merge_ai_into_draft(pending_event, None) if pending_event else None
 
         if draft and _is_cancel(text):
+            clear_draft(user_id)
             return AssistantResponse(
                 ok=True,
                 intent="cancel_event",
@@ -151,8 +158,9 @@ class AssistantService:
         )):
             merged = merge_ai_into_draft(draft, validated.event)
             merged = enrich_draft_from_message(merged, text)
-            # Never keep an AI-guessed date when user did not state one
+            # Never keep an AI-guessed date/time when user did not state one
             merged = scrub_invented_date(merged, text, trusted_pending=pending_event)
+            merged = scrub_invented_time(merged, text, trusted_pending=pending_event)
             return self._finish_or_ask(db, user_id, merged, language, validated.confidence, ai_result)
 
         # Unclear start — begin create flow by asking for date
@@ -174,6 +182,7 @@ class AssistantService:
             if any(h in lower for h in create_hints):
                 draft = enrich_draft_from_message(empty_draft(), text)
                 draft = scrub_invented_date(draft, text)
+                draft = scrub_invented_time(draft, text)
                 return self._finish_or_ask(db, user_id, draft, language, 0.7, ai_result)
             return AssistantResponse(
                 ok=True,
@@ -207,16 +216,65 @@ class AssistantService:
         field = next_missing(draft)
         assert field is not None
 
+        # Soft acks / thanks — keep draft and re-ask the same field
+        if is_soft_ack(text):
+            return self._ask_next(draft, language, confidence=0.9, retry=True, user_id=user_id)
+
+        # Year alone is not a full date
+        if field == "date" and is_year_only_date(text):
+            save_draft(user_id, draft)
+            return AssistantResponse(
+                ok=True,
+                intent="create_event",
+                language=language,
+                confidence=0.9,
+                message="Year alone is not enough. Please give a full date, e.g. 20 June 2027.",
+                missing_fields=missing_fields(draft),
+                needs_confirmation=False,
+                requires_clarification=True,
+                pending_event=draft,
+            )
+
         # 1) Deterministic fill for the field we asked
         filled = apply_slot_reply(pending=draft, message=text, field=field, today=date.today())
         if filled is not None:
             filled = enrich_draft_from_message(filled, text)
+            filled = lock_confirmed_slots(draft, filled, allow_update={field})
             return self._finish_or_ask(db, user_id, filled, language, 0.95, None)
+
+        # User may answer a different missing field (e.g. time while date was lost client-side)
+        for other in missing_fields(draft):
+            if other == field:
+                continue
+            alt = apply_slot_reply(pending=draft, message=text, field=other, today=date.today())
+            if alt is not None:
+                alt = enrich_draft_from_message(alt, text)
+                alt = lock_confirmed_slots(draft, alt, allow_update={other})
+                return self._finish_or_ask(db, user_id, alt, language, 0.95, None)
 
         # Also try enriching whole message (user may answer multiple fields)
         enriched = enrich_draft_from_message(dict(draft), text)
+        enriched = lock_confirmed_slots(draft, enriched)
         if missing_fields(enriched) != missing_fields(draft):
             return self._finish_or_ask(db, user_id, enriched, language, 0.9, None)
+
+        # Invalid calendar date like August 50
+        if field == "date" and re.search(
+            r"\b(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\b",
+            text.lower(),
+        ):
+            save_draft(user_id, draft)
+            return AssistantResponse(
+                ok=True,
+                intent="create_event",
+                language=language,
+                confidence=0.9,
+                message="That date is not valid. Please use a real day, e.g. 20 August 2026.",
+                missing_fields=missing_fields(draft),
+                needs_confirmation=False,
+                requires_clarification=True,
+                pending_event=draft,
+            )
 
         # 2) Ask AI with strong context — still merge; never drop draft
         context = {
@@ -233,6 +291,7 @@ class AssistantService:
             language = validated.language
             merged = merge_ai_into_draft(draft, validated.event)
             merged = enrich_draft_from_message(merged, text)
+            merged = lock_confirmed_slots(draft, merged, allow_update={field})
             # If still missing the same field, re-ask clearly
             if field in missing_fields(merged):
                 return self._ask_next(
@@ -241,12 +300,13 @@ class AssistantService:
                     confidence=validated.confidence,
                     ai_result=ai_result,
                     retry=True,
+                    user_id=user_id,
                 )
             return self._finish_or_ask(
                 db, user_id, merged, language, validated.confidence, ai_result
             )
         except AIServiceError:
-            return self._ask_next(draft, language, confidence=0.5, retry=True)
+            return self._ask_next(draft, language, confidence=0.5, retry=True, user_id=user_id)
 
     def _finish_or_ask(
         self,
@@ -259,7 +319,9 @@ class AssistantService:
     ) -> AssistantResponse:
         miss = missing_fields(event)
         if miss:
-            return self._ask_next(event, language, confidence=confidence, ai_result=ai_result)
+            return self._ask_next(
+                event, language, confidence=confidence, ai_result=ai_result, user_id=user_id
+            )
         return self._commit_pending(
             db,
             user_id=user_id,
@@ -277,6 +339,7 @@ class AssistantService:
         confidence: float = 0.9,
         ai_result: Any = None,
         retry: bool = False,
+        user_id: str | None = None,
     ) -> AssistantResponse:
         info = ask_again(event=event, language=language, confidence=confidence)
         msg = info["message"]
@@ -290,6 +353,9 @@ class AssistantService:
             code = language.code or "en"
             prefix = again.get(code) or again.get(code.split("-")[0]) or again["en"]
             msg = prefix + msg
+
+        if user_id:
+            save_draft(user_id, event)
 
         return AssistantResponse(
             ok=True,
@@ -318,14 +384,19 @@ class AssistantService:
         # Safety: never save while still missing
         miss = missing_fields(pending)
         if miss:
-            return self._ask_next(pending, lang, confidence=confidence, ai_result=ai_result)
+            return self._ask_next(
+                pending, lang, confidence=confidence, ai_result=ai_result, user_id=user_id
+            )
 
         try:
             kwargs = pending_event_to_create_kwargs(pending, user_id)
         except ValueError:
-            return self._ask_next(pending, lang, confidence=confidence, ai_result=ai_result, retry=True)
+            return self._ask_next(
+                pending, lang, confidence=confidence, ai_result=ai_result, retry=True, user_id=user_id
+            )
 
         event = event_service.create_event(db, **kwargs)
+        clear_draft(user_id)
         return AssistantResponse(
             ok=True,
             intent="create_event",

@@ -485,6 +485,21 @@
       confirmBar.hidden = !event;
     }
 
+    function mergePending(prev, next) {
+      if (!next) return prev || null;
+      if (!prev) return next;
+      const keys = ["date", "time", "category", "label", "notes"];
+      const out = { ...prev, ...next };
+      for (const k of keys) {
+        const n = next[k];
+        const p = prev[k];
+        const nOk = n !== null && n !== undefined && String(n).trim() !== "" && String(n).toLowerCase() !== "null";
+        const pOk = p !== null && p !== undefined && String(p).trim() !== "" && String(p).toLowerCase() !== "null";
+        out[k] = nOk ? n : (pOk ? p : null);
+      }
+      return out;
+    }
+
     function applyAssistantResult(data) {
       addBubble(data.message || JSON.stringify(data), "bot");
       if (data.event) {
@@ -500,9 +515,9 @@
       } else if (data.intent === "cancel_event") {
         setPending(null);
       } else if (data.pending_event) {
-        setPending(data.pending_event);
+        setPending(mergePending(pendingEvent, data.pending_event));
       } else if (data.missing_fields?.length) {
-        setPending(data.pending_event || pendingEvent);
+        setPending(mergePending(pendingEvent, data.pending_event || pendingEvent));
       }
       return Promise.resolve();
     }

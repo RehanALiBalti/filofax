@@ -235,6 +235,49 @@ def message_has_explicit_date(text: str) -> bool:
     return any(re.search(p, lower) for p in cues)
 
 
+def message_has_explicit_time(text: str) -> bool:
+    lower = text.strip().lower().replace("p.m.", "pm").replace("a.m.", "am")
+    if not lower:
+        return False
+    cues = [
+        r"\b\d{1,2}(?::\d{2})?\s*(am|pm)\b",
+        r"\b([01]?\d|2[0-3]):([0-5]\d)\b",
+        r"\b(baje|bajay|o'clock)\b",
+        r"\b(time|timer|waqt)\s+is\b",
+        r"\bat\s+\d{1,2}\b",
+        r"\b(sham|evening|night)\s+\d{1,2}\b",
+    ]
+    return any(re.search(p, lower) for p in cues)
+
+
+def is_year_only_date(text: str) -> bool:
+    t = text.strip().lower().rstrip(".")
+    return bool(re.fullmatch(r"(?:year\s+|in\s+)?((?:19|20)\d{2})", t))
+
+
+def is_soft_ack(text: str) -> bool:
+    t = re.sub(r"[.!?,]+$", "", text.strip().lower()).strip()
+    return t in {
+        "thanks",
+        "thank you",
+        "thx",
+        "ok",
+        "okay",
+        "k",
+        "sure",
+        "yes",
+        "yep",
+        "yeah",
+        "haan",
+        "han",
+        "ji",
+        "theek",
+        "theek hai",
+        "alright",
+        "got it",
+    }
+
+
 def scrub_invented_date(
     draft: dict[str, Any],
     message: str,
@@ -247,10 +290,36 @@ def scrub_invented_date(
     """
     out = dict(draft)
     if trusted_pending and trusted_pending.get("date"):
+        # Allow overwrite only when this message clearly states a new date
+        if message_has_explicit_date(message):
+            parsed = _parse_relative_date(message, date.today())
+            if parsed:
+                out["date"] = parsed.isoformat()
+                return out
         out["date"] = trusted_pending["date"]
         return out
     if out.get("date") and not message_has_explicit_date(message):
         out["date"] = None
+    return out
+
+
+def scrub_invented_time(
+    draft: dict[str, Any],
+    message: str,
+    *,
+    trusted_pending: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    out = dict(draft)
+    if trusted_pending and trusted_pending.get("time"):
+        if message_has_explicit_time(message):
+            parsed = _parse_flexible_time(message)
+            if parsed:
+                out["time"] = parsed
+                return out
+        out["time"] = trusted_pending["time"]
+        return out
+    if out.get("time") and not message_has_explicit_time(message):
+        out["time"] = None
     return out
 
 
@@ -267,6 +336,8 @@ def enrich_draft_from_message(
     if not text:
         return out
     lower = text.lower()
+    prior_date = draft.get("date")
+    prior_time = draft.get("time")
 
     if not out.get("time"):
         value = _parse_flexible_time(text)
@@ -336,7 +407,26 @@ def enrich_draft_from_message(
             if place:
                 out["notes"] = place[:500]
 
-    return scrub_invented_date(out, text)
+    # Never wipe slots already confirmed when user answers another field
+    if prior_date:
+        if message_has_explicit_date(text):
+            parsed = _parse_relative_date(text, today)
+            out["date"] = parsed.isoformat() if parsed else prior_date
+        else:
+            out["date"] = prior_date
+    else:
+        out = scrub_invented_date(out, text)
+
+    if prior_time:
+        if message_has_explicit_time(text):
+            parsed = _parse_flexible_time(text)
+            out["time"] = parsed or prior_time
+        else:
+            out["time"] = prior_time
+    else:
+        out = scrub_invented_time(out, text)
+
+    return out
 
 
 def _parse_category_reply(text: str) -> str | None:
@@ -357,6 +447,31 @@ def _parse_category_reply(text: str) -> str | None:
     return None
 
 
+def lock_confirmed_slots(
+    before: dict[str, Any],
+    after: dict[str, Any],
+    *,
+    allow_update: set[str] | None = None,
+) -> dict[str, Any]:
+    """
+    Never drop date/time/category/label that were already set in `before`,
+    unless the key is in allow_update (the field just answered).
+    """
+    out = dict(after)
+    allow = allow_update or set()
+    for key in ("date", "time", "category", "label", "notes"):
+        prev = before.get(key)
+        if prev is None or str(prev).strip() == "" or str(prev).lower() == "null":
+            continue
+        if key in allow and out.get(key):
+            continue
+        # Keep previous value if after cleared it or left it empty
+        cur = out.get(key)
+        if cur is None or str(cur).strip() == "" or str(cur).lower() == "null":
+            out[key] = prev
+    return out
+
+
 def apply_slot_reply(
     *,
     pending: dict[str, Any],
@@ -375,6 +490,8 @@ def apply_slot_reply(
 
     updated = dict(pending)
     if field == "date":
+        if is_year_only_date(text):
+            return None
         value = _parse_relative_date(text, today)
         if not value:
             return None
