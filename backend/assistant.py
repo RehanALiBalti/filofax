@@ -58,6 +58,8 @@ GREETING_WORDS = {
 
 CANCEL_WORDS = {
     "cancel",
+    "clear",
+    "clear reminder",
     "nah",
     "rehne do",
     "mat karo",
@@ -76,7 +78,11 @@ def _is_greeting(message: str) -> bool:
 
 def _is_cancel(message: str) -> bool:
     text = message.strip().lower()
-    return text in CANCEL_WORDS or text.startswith("cancel")
+    return (
+        text in CANCEL_WORDS
+        or text.startswith("cancel")
+        or text.startswith("clear")
+    )
 
 
 class AssistantService:
@@ -105,6 +111,18 @@ class AssistantService:
                 message=help_message(lang),
             )
 
+        # Cancel / clear first — never treat as a new create
+        if _is_cancel(text):
+            clear_draft(user_id)
+            return AssistantResponse(
+                ok=True,
+                intent="cancel_event",
+                language=lang,
+                confidence=1.0,
+                message="Reminder cleared. No event was saved.",
+                pending_event=None,
+            )
+
         # New "add reminder / create event" always starts clean — ignore stale server/client draft
         if is_fresh_create_request(text):
             clear_draft(user_id)
@@ -113,17 +131,6 @@ class AssistantService:
         else:
             pending_event = merge_client_pending(user_id, pending_event)
             draft = merge_ai_into_draft(pending_event, None) if pending_event else None
-
-        if draft and _is_cancel(text):
-            clear_draft(user_id)
-            return AssistantResponse(
-                ok=True,
-                intent="cancel_event",
-                language=lang,
-                confidence=1.0,
-                message="Cancelled. No event was saved.",
-                pending_event=None,
-            )
 
         if _is_greeting(text) and not draft:
             return AssistantResponse(
