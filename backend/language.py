@@ -244,10 +244,10 @@ def confirm_message(summary: str, language: LanguageInfo) -> str:
     return _template(_CONFIRM_TEMPLATES, language, summary=summary)
 
 
-def created_message(label: str, language: LanguageInfo) -> str:
+def created_message(label: str, language: LanguageInfo, **kwargs: Any) -> str:
     from backend.chat_style import created_message as _styled
 
-    return _styled(label, language)
+    return _styled(label, language, **kwargs)
 
 
 def search_message(count: int, language: LanguageInfo) -> str:
@@ -262,16 +262,16 @@ def help_message(language: LanguageInfo) -> str:
     return _template(_HELP_TEMPLATES, language)
 
 
-def greeting_message(language: LanguageInfo) -> str:
+def greeting_message(language: LanguageInfo, **kwargs: Any) -> str:
     from backend.chat_style import greeting_message as _styled
 
-    return _styled(language)
+    return _styled(language, **kwargs)
 
 
-def ask_next_field_message(field: str, language: LanguageInfo) -> str:
+def ask_next_field_message(field: str, language: LanguageInfo, **kwargs: Any) -> str:
     from backend.chat_style import ask_next_field_message as _styled
 
-    return _styled(field, language)
+    return _styled(field, language, **kwargs)
 
 
 def progress_ask_message(
@@ -280,6 +280,7 @@ def progress_ask_message(
     filled_value: Any,
     next_field: str | None,
     language: LanguageInfo,
+    **kwargs: Any,
 ) -> str:
     from backend.chat_style import progress_ask_message as _styled
 
@@ -288,16 +289,23 @@ def progress_ask_message(
         filled_value=filled_value,
         next_field=next_field,
         language=language,
+        **kwargs,
     )
 
 
-def smalltalk_message(language: LanguageInfo) -> str:
+def smalltalk_message(language: LanguageInfo, **kwargs: Any) -> str:
     from backend.chat_style import smalltalk_message as _styled
 
-    return _styled(language)
+    return _styled(language, **kwargs)
 
 
-def retry_prefix(language: LanguageInfo) -> str:
+def retry_prefix(language: LanguageInfo, **kwargs: Any) -> str:
     from backend.chat_style import retry_prefix as _styled
 
-    return _styled(language)
+    return _styled(language, **kwargs)
+
+
+def confirm_save_message(event: dict[str, Any], language: LanguageInfo, **kwargs: Any) -> str:
+    from backend.chat_style import confirm_save_message as _styled
+
+    return _styled(event, language, **kwargs)

@@ -155,6 +155,7 @@ class AssistantResponse(BaseModel):
     event: Optional[EventOut] = None
     events: list[EventOut] = Field(default_factory=list)
     filters: Optional[dict[str, Any]] = None
+    suggested_replies: list[str] = Field(default_factory=list)
     ai: Optional[AIResponse] = None
     transcript: Optional[str] = None
     input_mode: Optional[str] = None  # "text" | "voice"

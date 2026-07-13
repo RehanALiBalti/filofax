@@ -1,4 +1,4 @@
-"""Orchestrates AI parsing → slot filling → auto-save / search."""
+"""Orchestrates AI parsing → slot filling → soft-confirm save / search."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from backend.ai.service import AIService, AIServiceError, ai_service
 from backend import event_service
 from backend.language import (
     ask_next_field_message,
+    confirm_save_message,
     created_message,
     default_language,
     greeting_message,
@@ -23,10 +24,11 @@ from backend.language import (
     smalltalk_message,
     unclear_message,
 )
+from backend.chat_style import is_affirmative, is_negative, suggested_replies_for
 from backend.models import AssistantResponse, EventOut, LanguageInfo
 from backend.draft_store import clear_draft, merge_client_pending, save_draft
 from backend.slot_fill import (
-    apply_slot_reply,
+    absorb_user_message,
     ask_again,
     empty_draft,
     enrich_draft_from_message,
@@ -45,6 +47,21 @@ from backend.slot_fill import (
     scrub_invented_time,
 )
 from backend.validators import pending_event_to_create_kwargs, validate_ai_response
+
+
+def _clean_event(event: dict[str, Any]) -> dict[str, Any]:
+    """Drop internal flags before persist."""
+    return {k: v for k, v in event.items() if not str(k).startswith("_")}
+
+
+def _awaiting_confirm(event: dict[str, Any] | None) -> bool:
+    return bool(event and event.get("_awaiting_confirm"))
+
+
+def _with_confirm_flag(event: dict[str, Any]) -> dict[str, Any]:
+    out = dict(event)
+    out["_awaiting_confirm"] = True
+    return out
 
 
 GREETING_WORDS = {
@@ -238,11 +255,10 @@ class AssistantService:
         confirm: bool = False,
         pending_event: dict[str, Any] | None = None,
     ) -> AssistantResponse:
-        _ = confirm  # auto-save when complete; no confirm gate
         text = message.strip()
         lang = default_language()
 
-        if not text:
+        if not text and not confirm:
             return AssistantResponse(
                 ok=False,
                 intent="unknown",
@@ -252,7 +268,7 @@ class AssistantService:
             )
 
         # Cancel / clear first — never treat as a new create
-        if _is_cancel(text):
+        if text and _is_cancel(text):
             clear_draft(user_id)
             return AssistantResponse(
                 ok=True,
@@ -264,19 +280,42 @@ class AssistantService:
             )
 
         # New "add reminder / create event" always starts clean — ignore stale server/client draft
-        if is_fresh_create_request(text):
+        if text and is_fresh_create_request(text):
             clear_draft(user_id)
             pending_event = None
             draft = None
         else:
             pending_event = merge_client_pending(user_id, pending_event)
             draft = merge_ai_into_draft(pending_event, None) if pending_event else None
+            # Preserve confirm flag (empty_draft merge can drop unknown keys via gaps)
+            if pending_event and pending_event.get("_awaiting_confirm"):
+                if draft is None:
+                    draft = dict(pending_event)
+                else:
+                    draft["_awaiting_confirm"] = True
 
-        if _is_greeting(text):
-            greet = greeting_message(lang)
+        # Soft confirm before save (Yes button / yes / no)
+        if draft and not missing_fields(draft) and (confirm or _awaiting_confirm(draft)):
+            gate = self._handle_confirm_gate(
+                db,
+                user_id=user_id,
+                text=text or "yes",
+                draft=draft,
+                confirm=confirm,
+                language=lang,
+            )
+            if gate is not None:
+                return gate
+
+        if text and _is_greeting(text):
+            greet = greeting_message(lang, user_id=user_id, text=text)
             if draft and missing_fields(draft):
                 nxt = next_missing(draft)
-                ask = ask_next_field_message(nxt, lang) if nxt else ""
+                ask = (
+                    ask_next_field_message(nxt, lang, user_id=user_id, text=text)
+                    if nxt
+                    else ""
+                )
                 save_draft(user_id, draft)
                 return AssistantResponse(
                     ok=True,
@@ -297,11 +336,15 @@ class AssistantService:
                 requires_clarification=False,
             )
 
-        if _is_smalltalk(text):
-            chatty = smalltalk_message(lang)
+        if text and _is_smalltalk(text):
+            chatty = smalltalk_message(lang, user_id=user_id, text=text)
             if draft and missing_fields(draft):
                 nxt = next_missing(draft)
-                ask = ask_next_field_message(nxt, lang) if nxt else ""
+                ask = (
+                    ask_next_field_message(nxt, lang, user_id=user_id, text=text)
+                    if nxt
+                    else ""
+                )
                 save_draft(user_id, draft)
                 return AssistantResponse(
                     ok=True,
@@ -435,42 +478,37 @@ class AssistantService:
                 pending_event=draft,
             )
 
-        # 1) Deterministic fill for the field we asked
-        filled = apply_slot_reply(pending=draft, message=text, field=field, today=date.today())
-        if filled is not None:
-            filled = enrich_draft_from_message(filled, text)
-            filled = lock_confirmed_slots(draft, filled, allow_update={field})
-            filled = self._scrub_unasked_inventions(filled, text, draft, field)
-            return self._finish_or_ask(
-                db, user_id, filled, language, 0.95, None, filled_field=field
+        # Order-agnostic: accept any slot / pack / correction in one pass
+        absorbed = absorb_user_message(
+            draft, text, preferred_field=field, today=date.today()
+        )
+        if absorbed is not None:
+            changed = self._changed_slot_keys(draft, absorbed)
+            newly = {
+                k
+                for k in ("date", "time", "category", "label")
+                if not draft.get(k)
+                and absorbed.get(k)
+                and str(absorbed.get(k)).strip()
+                and str(absorbed.get(k)).lower() != "null"
+            }
+            allow = changed | newly
+            absorbed = lock_confirmed_slots(draft, absorbed, allow_update=allow or None)
+            filled_field = self._prefer_filled_field(allow, fallback=field)
+            corrected = bool(
+                filled_field
+                and filled_field in changed
+                and draft.get(filled_field)
             )
-
-        # User may answer a different missing field (e.g. time while date was lost client-side)
-        for other in missing_fields(draft):
-            if other == field:
-                continue
-            alt = apply_slot_reply(pending=draft, message=text, field=other, today=date.today())
-            if alt is not None:
-                alt = enrich_draft_from_message(alt, text)
-                alt = lock_confirmed_slots(draft, alt, allow_update={other})
-                alt = self._scrub_unasked_inventions(alt, text, draft, other)
-                return self._finish_or_ask(
-                    db, user_id, alt, language, 0.95, None, filled_field=other
-                )
-
-        # Also try enriching whole message (user may answer multiple fields)
-        enriched = enrich_draft_from_message(dict(draft), text)
-        enriched = lock_confirmed_slots(draft, enriched)
-        enriched = self._scrub_unasked_inventions(enriched, text, draft, field)
-        if missing_fields(enriched) != missing_fields(draft):
-            # Detect which field(s) newly filled
-            newly = None
-            for key in ("date", "time", "category", "label"):
-                if not draft.get(key) and enriched.get(key):
-                    newly = key
-                    break
             return self._finish_or_ask(
-                db, user_id, enriched, language, 0.9, None, filled_field=newly
+                db,
+                user_id,
+                absorbed,
+                language,
+                0.95,
+                None,
+                filled_field=filled_field,
+                corrected=corrected,
             )
 
         # Invalid calendar date like August 50
@@ -491,13 +529,18 @@ class AssistantService:
                 pending_event=draft,
             )
 
-        # 2) Ask AI with strong context — still merge; never drop draft
+        # AI fallback — still accept any fields in any order
         context = {
             "intent": "create_event",
             "event": draft,
             "missing_fields": missing_fields(draft),
-            "ask_only": field,
-            "instruction": f"User is answering the missing field '{field}'. Extract only that if possible. Preserve all previous event fields.",
+            "next_ask": field,
+            "instruction": (
+                f"User may answer any fields in any order (date, time, category, label), "
+                f"or correct previous values. Currently missing: {missing_fields(draft)}. "
+                f"We next planned to ask '{field}', but extract EVERY clear field they give. "
+                "Preserve all previous event fields unless the user clearly changes them."
+            ),
         }
         try:
             ai_result = self.ai.parse_message(text, conversation_context=context)
@@ -506,10 +549,24 @@ class AssistantService:
             language = validated.language
             merged = merge_ai_into_draft(draft, validated.event)
             merged = enrich_draft_from_message(merged, text)
-            merged = lock_confirmed_slots(draft, merged, allow_update={field})
-            merged = self._scrub_unasked_inventions(merged, text, draft, field)
-            # If still missing the same field, re-ask clearly
-            if field in missing_fields(merged):
+            absorbed2 = absorb_user_message(
+                merged, text, preferred_field=field, today=date.today()
+            )
+            if absorbed2 is not None:
+                merged = absorbed2
+            allow = {field} | self._changed_slot_keys(draft, merged)
+            allow |= {
+                k
+                for k in ("date", "time", "category", "label")
+                if not draft.get(k)
+                and merged.get(k)
+                and str(merged.get(k)).strip()
+                and str(merged.get(k)).lower() != "null"
+            }
+            merged = lock_confirmed_slots(draft, merged, allow_update=allow)
+            changed = self._changed_slot_keys(draft, merged)
+            newly = allow - changed
+            if field in missing_fields(merged) and not changed and not newly:
                 return self._ask_next(
                     merged,
                     language,
@@ -518,11 +575,55 @@ class AssistantService:
                     retry=True,
                     user_id=user_id,
                 )
+            filled_field = self._prefer_filled_field(changed | newly, fallback=field)
             return self._finish_or_ask(
-                db, user_id, merged, language, validated.confidence, ai_result, filled_field=field
+                db, user_id, merged, language, validated.confidence, ai_result, filled_field=filled_field
             )
         except AIServiceError:
+            fallback = absorb_user_message(
+                draft, text, preferred_field=field, today=date.today()
+            )
+            if fallback is not None:
+                changed = self._changed_slot_keys(draft, fallback)
+                newly = {
+                    k
+                    for k in ("date", "time", "category", "label")
+                    if not draft.get(k) and fallback.get(k)
+                }
+                fallback = lock_confirmed_slots(
+                    draft, fallback, allow_update=changed | newly or None
+                )
+                return self._finish_or_ask(
+                    db,
+                    user_id,
+                    fallback,
+                    language,
+                    0.7,
+                    None,
+                    filled_field=self._prefer_filled_field(changed | newly),
+                )
             return self._ask_next(draft, language, confidence=0.5, retry=True, user_id=user_id)
+
+    @staticmethod
+    def _changed_slot_keys(before: dict[str, Any], after: dict[str, Any]) -> set[str]:
+        changed: set[str] = set()
+        for key in ("date", "time", "category", "label"):
+            prev = before.get(key)
+            cur = after.get(key)
+            if prev in (None, "", "null") or cur in (None, "", "null"):
+                continue
+            if str(prev).strip().lower() == "null" or str(cur).strip().lower() == "null":
+                continue
+            if str(prev).strip() != str(cur).strip():
+                changed.add(key)
+        return changed
+
+    @staticmethod
+    def _prefer_filled_field(keys: set[str], fallback: str | None = None) -> str | None:
+        for prefer in ("time", "date", "category", "label"):
+            if prefer in keys:
+                return prefer
+        return fallback
 
     @staticmethod
     def _scrub_unasked_inventions(
@@ -553,6 +654,7 @@ class AssistantService:
         ai_result: Any,
         *,
         filled_field: str | None = None,
+        corrected: bool = False,
     ) -> AssistantResponse:
         miss = missing_fields(event)
         if miss:
@@ -564,14 +666,130 @@ class AssistantService:
                 user_id=user_id,
                 filled_field=filled_field,
                 filled_value=event.get(filled_field) if filled_field else None,
+                corrected=corrected,
             )
-        return self._commit_pending(
-            db,
+        return self._offer_confirm(
             user_id=user_id,
             pending=event,
             language=language,
             confidence=confidence,
             ai_result=ai_result,
+        )
+
+    def _handle_confirm_gate(
+        self,
+        db: Session,
+        *,
+        user_id: str,
+        text: str,
+        draft: dict[str, Any],
+        confirm: bool,
+        language: LanguageInfo,
+    ) -> AssistantResponse | None:
+        """Yes → save; No → discard; mid-edit → update + re-confirm."""
+        if confirm or is_affirmative(text):
+            return self._commit_pending(
+                db,
+                user_id=user_id,
+                pending=draft,
+                language=language,
+                confidence=1.0,
+            )
+
+        # Chip / intent: "Change time" / "Change date" while confirming
+        lower = text.strip().lower()
+        change_time = bool(re.search(r"\b(change|edit|update)\s+(the\s+)?time\b", lower))
+        change_date = bool(re.search(r"\b(change|edit|update)\s+(the\s+)?date\b", lower))
+        if (change_time or change_date) and not (
+            message_has_explicit_time(text) or message_has_explicit_date(text)
+        ):
+            ask_field = "time" if change_time else "date"
+            held = dict(draft)
+            held["_awaiting_confirm"] = True
+            held[f"_fix_{ask_field}"] = True
+            save_draft(user_id, held)
+            ask = ask_next_field_message(ask_field, language, user_id=user_id, text=text)
+            return AssistantResponse(
+                ok=True,
+                intent="confirm_event",
+                language=language,
+                confidence=0.95,
+                message=f"Sure — {ask}",
+                missing_fields=[],
+                needs_confirmation=False,
+                requires_clarification=True,
+                pending_event=held,
+                suggested_replies=suggested_replies_for(ask_field),
+            )
+
+        # Allow fixing slots while confirming (any field, any order)
+        updated = absorb_user_message(dict(draft), text, today=date.today())
+        if updated is not None:
+            changed = self._changed_slot_keys(draft, updated)
+            newly = {
+                k
+                for k in ("date", "time", "category", "label")
+                if not draft.get(k) and updated.get(k)
+            }
+            if changed or newly:
+                updated = lock_confirmed_slots(
+                    draft, updated, allow_update=changed | newly
+                )
+                updated["_awaiting_confirm"] = True
+                for flag in ("_fix_time", "_fix_date"):
+                    updated.pop(flag, None)
+                return self._offer_confirm(
+                    user_id=user_id,
+                    pending=updated,
+                    language=language,
+                    confidence=0.95,
+                )
+
+        if is_negative(text):
+            clear_draft(user_id)
+            return AssistantResponse(
+                ok=True,
+                intent="cancel_event",
+                language=language,
+                confidence=1.0,
+                message="Okay — not saved. Say “add reminder” when you want to try again.",
+                needs_confirmation=False,
+                pending_event=None,
+                suggested_replies=[],
+            )
+        return self._offer_confirm(
+            user_id=user_id,
+            pending=draft,
+            language=language,
+            confidence=0.95,
+        )
+
+    def _offer_confirm(
+        self,
+        *,
+        user_id: str,
+        pending: dict[str, Any],
+        language: LanguageInfo,
+        confidence: float = 1.0,
+        ai_result: Any = None,
+    ) -> AssistantResponse:
+        event = _with_confirm_flag(pending)
+        for flag in ("_fix_time", "_fix_date"):
+            event.pop(flag, None)
+        save_draft(user_id, event)
+        msg = confirm_save_message(event, language, user_id=user_id)
+        return AssistantResponse(
+            ok=True,
+            intent="confirm_event",
+            language=language,
+            confidence=confidence,
+            message=msg,
+            missing_fields=[],
+            needs_confirmation=True,
+            requires_clarification=False,
+            pending_event=event,
+            suggested_replies=suggested_replies_for(None, needs_confirmation=True),
+            ai=ai_result,
         )
 
     def _ask_next(
@@ -585,20 +803,38 @@ class AssistantService:
         user_id: str | None = None,
         filled_field: str | None = None,
         filled_value: Any = None,
+        corrected: bool = False,
     ) -> AssistantResponse:
+        from backend.chat_style import draft_so_far_line
+
         info = ask_again(event=event, language=language, confidence=confidence)
         nxt = info["next_field"]
+        style_kw: dict[str, Any] = {"user_id": user_id or "default"}
+
         if retry and nxt:
-            msg = retry_prefix(language) + ask_next_field_message(nxt, language)
+            prefix = retry_prefix(language, **style_kw)
+            line = draft_so_far_line(event, language, user_id=style_kw["user_id"])
+            ask = ask_next_field_message(nxt, language, **style_kw)
+            msg = " ".join(p for p in (prefix.strip(), line, ask) if p)
         elif filled_field and filled_value not in (None, ""):
             msg = progress_ask_message(
                 filled_field=filled_field,
                 filled_value=filled_value,
                 next_field=nxt,
                 language=language,
+                event=event,
+                corrected=corrected,
+                **style_kw,
             )
         else:
-            msg = info["message"]
+            msg = progress_ask_message(
+                filled_field=None,
+                filled_value=None,
+                next_field=nxt,
+                language=language,
+                event=event,
+                **style_kw,
+            ) or info["message"]
 
         if user_id:
             save_draft(user_id, event)
@@ -613,6 +849,7 @@ class AssistantService:
             needs_confirmation=False,
             requires_clarification=True,
             pending_event=event,
+            suggested_replies=suggested_replies_for(nxt),
             ai=ai_result,
         )
 
@@ -635,7 +872,7 @@ class AssistantService:
             )
 
         try:
-            kwargs = pending_event_to_create_kwargs(pending, user_id)
+            kwargs = pending_event_to_create_kwargs(_clean_event(pending), user_id)
         except ValueError:
             return self._ask_next(
                 pending, lang, confidence=confidence, ai_result=ai_result, retry=True, user_id=user_id
@@ -648,7 +885,7 @@ class AssistantService:
             intent="create_event",
             language=lang,
             confidence=confidence,
-            message=created_message(event.label, lang),
+            message=created_message(event.label, lang, user_id=user_id),
             needs_confirmation=False,
             requires_clarification=False,
             event=EventOut.model_validate(event),

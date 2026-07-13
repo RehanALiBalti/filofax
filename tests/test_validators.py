@@ -7,7 +7,7 @@ from backend.models import AIEventPayload, AIFiltersPayload, AIResponse, Languag
 from backend.validators import merge_pending_event, validate_ai_response
 
 
-def test_create_complete_autosave_ready():
+def test_create_complete_needs_confirmation():
     ai = AIResponse(
         intent="create_event",
         language={"code": "en", "name": "English", "is_mixed": False},
@@ -19,7 +19,7 @@ def test_create_complete_autosave_ready():
             notes=None,
         ),
         missing_fields=[],
-        requires_confirmation=False,
+        requires_confirmation=True,
         confidence=0.96,
     )
     result = validate_ai_response(ai)
@@ -28,7 +28,7 @@ def test_create_complete_autosave_ready():
     assert result.event["category"] == "Appointment"
     assert result.event["time"] == "16:00"
     assert result.language.code == "en"
-    assert result.requires_confirmation is False
+    assert result.requires_confirmation is True
     assert result.requires_clarification is False
 
 

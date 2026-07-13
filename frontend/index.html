@@ -196,6 +196,52 @@
       min-width: 0;
     }
     .composer-input-wrap input::placeholder { color: #8a97a6; }
+    .confirm-actions {
+      display: flex;
+      gap: 0.5rem;
+      padding: 0.45rem 0.85rem 0.15rem;
+      flex-wrap: wrap;
+    }
+    .confirm-actions[hidden] { display: none !important; }
+    .confirm-actions button {
+      border: 0;
+      border-radius: 999px;
+      padding: 0.45rem 1rem;
+      font: inherit;
+      font-size: 0.9rem;
+      cursor: pointer;
+    }
+    .confirm-actions .yes {
+      background: var(--ink, #1a2332);
+      color: #fff;
+    }
+    .confirm-actions .no {
+      background: #fff;
+      color: var(--ink, #1a2332);
+      border: 1px solid rgba(26, 35, 50, 0.15);
+    }
+    .slot-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+      padding: 0.35rem 0.85rem 0.2rem;
+    }
+    .slot-chips[hidden] { display: none !important; }
+    .slot-chips button {
+      border: 1px solid rgba(26, 35, 50, 0.14);
+      background: #fff;
+      color: var(--ink, #1a2332);
+      border-radius: 0.55rem;
+      padding: 0.38rem 0.75rem;
+      font: inherit;
+      font-size: 0.82rem;
+      cursor: pointer;
+      transition: background 0.12s ease, border-color 0.12s ease;
+    }
+    .slot-chips button:hover {
+      background: #f3f0ea;
+      border-color: rgba(26, 35, 50, 0.28);
+    }
     .icon-btn {
       border: 0;
       width: 2.85rem;
@@ -432,6 +478,11 @@
         </div>
         <div id="log"></div>
         <form id="chatForm" class="composer" autocomplete="off">
+          <div class="confirm-actions" id="confirmActions" hidden>
+            <button type="button" class="yes" id="confirmYes">Yes, save</button>
+            <button type="button" class="no" id="confirmNo">No</button>
+          </div>
+          <div class="slot-chips" id="slotChips" hidden></div>
           <div class="composer-row" id="textRow">
             <div class="composer-input-wrap">
               <input id="message" type="text" placeholder="Message" autocomplete="off" />
@@ -491,8 +542,20 @@
     const cancelRecBtn = document.getElementById("cancelRecBtn");
     const clearBtn = document.getElementById("clearBtn");
     const ttsBtn = document.getElementById("ttsBtn");
+    const confirmActions = document.getElementById("confirmActions");
+    const confirmYes = document.getElementById("confirmYes");
+    const confirmNo = document.getElementById("confirmNo");
+    const slotChips = document.getElementById("slotChips");
     const healthEl = document.getElementById("health");
     const dot = document.getElementById("dot");
+
+    const PLACEHOLDERS = {
+      date: "e.g. 14 August 2027",
+      time: "e.g. 9:25 pm",
+      category: "To Do · Appointment · Important",
+      label: "e.g. Card Check",
+      default: "Message",
+    };
 
     const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
     const canSpeak = !!window.speechSynthesis;
@@ -525,18 +588,63 @@
       return window.speechSynthesis.getVoices() || [];
     }
 
+    // Prefer natural female voices (Neural / Online / known female names)
+    const FEMALE_NAME_RE =
+      /female|zira|samantha|karen|moira|fiona|tessa|victoria|susan|hazel|catherine|serena|aria|jenny|sonia|natasha|neerja|heera|google us english|microsoft aria|microsoft jenny|microsoft zira|Samantha|Karen/i;
+    const MALE_NAME_RE =
+      /male|\bdavid\b|\bmark\b|\bravi\b|\brichard\b|\bgeorge\b|\bfred\b|\balex\b|\bdaniel\b|\bbrian\b|\bthomas\b|microsoft david|microsoft mark|google uk english male/i;
+    const QUALITY_RE = /neural|natural|online|premium|enhanced|wavenet|studio|google|microsoft.*online/i;
+
+    function scoreVoice(v, lang, primary) {
+      const name = v.name || "";
+      const vLang = (v.lang || "").toLowerCase();
+      let score = 0;
+
+      if (MALE_NAME_RE.test(name) && !/female/i.test(name)) score -= 100;
+      if (FEMALE_NAME_RE.test(name)) score += 80;
+      // localService false often = cloud/neural higher quality on Chromium
+      if (v.localService === false) score += 40;
+      if (QUALITY_RE.test(name)) score += 50;
+      if (vLang === lang) score += 30;
+      else if (vLang.startsWith(primary)) score += 20;
+      else if (/^en[-_]/.test(vLang) || vLang === "en") score += 15;
+      else score -= 20;
+      // Prefer en-US / en-GB natural assistants
+      if (/en[-_]?us/i.test(vLang)) score += 10;
+      if (/en[-_]?gb/i.test(vLang) && FEMALE_NAME_RE.test(name)) score += 8;
+      return score;
+    }
+
     function pickVoice() {
       const voices = loadVoices();
       if (!voices.length) return null;
       const lang = (navigator.language || "en-US").toLowerCase();
       const primary = lang.split("-")[0];
+
+      const ranked = voices
+        .map((v) => ({ v, score: scoreVoice(v, lang, primary) }))
+        .sort((a, b) => b.score - a.score);
+
+      // Best female / high-quality pick
+      const best = ranked[0]?.v || null;
+      if (best && scoreVoice(best, lang, primary) > 0) return best;
+
+      // Fallback: any English voice that doesn't look male
       return (
-        voices.find((v) => v.lang.toLowerCase() === lang) ||
-        voices.find((v) => v.lang.toLowerCase().startsWith(primary)) ||
-        voices.find((v) => /en[-_]?us/i.test(v.lang) && /female|zira|samantha|google/i.test(v.name)) ||
-        voices.find((v) => v.lang.toLowerCase().startsWith("en")) ||
+        voices.find((v) => /en/i.test(v.lang) && !MALE_NAME_RE.test(v.name)) ||
+        voices.find((v) => FEMALE_NAME_RE.test(v.name)) ||
+        voices.find((v) => /en/i.test(v.lang)) ||
         voices[0]
       );
+    }
+
+    let cachedVoice = null;
+    function getAssistantVoice() {
+      const voices = loadVoices();
+      if (!voices.length) return null;
+      if (cachedVoice && voices.includes(cachedVoice)) return cachedVoice;
+      cachedVoice = pickVoice();
+      return cachedVoice;
     }
 
     let speakTimer = null;
@@ -576,15 +684,16 @@
           } catch (_) { /* ignore */ }
 
           const utter = new SpeechSynthesisUtterance(clean);
-          const voice = pickVoice();
+          const voice = getAssistantVoice();
           if (voice) {
             utter.voice = voice;
-            utter.lang = voice.lang;
+            utter.lang = voice.lang || "en-US";
           } else {
-            utter.lang = navigator.language || "en-US";
+            utter.lang = "en-US";
           }
-          utter.rate = 1;
-          utter.pitch = 1;
+          // Clear, natural female-assistant delivery
+          utter.rate = 0.95;
+          utter.pitch = 1.08;
           utter.volume = 1;
 
           if (playBtn) {
@@ -671,7 +780,14 @@
 
     if (canSpeak) {
       loadVoices();
-      window.speechSynthesis.onvoiceschanged = () => loadVoices();
+      window.speechSynthesis.onvoiceschanged = () => {
+        cachedVoice = null;
+        getAssistantVoice();
+      };
+      setTimeout(() => {
+        cachedVoice = null;
+        getAssistantVoice();
+      }, 300);
     }
 
     if (ttsBtn) {
@@ -854,6 +970,43 @@
       pendingEvent = event;
     }
 
+    function setConfirmUi(show) {
+      if (!confirmActions) return;
+      confirmActions.hidden = !show;
+    }
+
+    function setPlaceholder(nextField) {
+      if (!input) return;
+      input.placeholder = PLACEHOLDERS[nextField] || PLACEHOLDERS.default;
+    }
+
+    function setSlotChips(suggestions) {
+      if (!slotChips) return;
+      const list = Array.isArray(suggestions) ? suggestions.filter(Boolean) : [];
+      // Confirm screen uses dedicated Yes/No — skip duplicating Yes/No as chips
+      const chips = list.filter((s) => {
+        const t = String(s).toLowerCase();
+        return t !== "yes, save" && t !== "no";
+      });
+      slotChips.innerHTML = "";
+      if (!chips.length) {
+        slotChips.hidden = true;
+        return;
+      }
+      chips.forEach((label) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.textContent = label;
+        btn.addEventListener("click", async () => {
+          addBubble(label, "user");
+          setSlotChips([]);
+          await chat(label, false);
+        });
+        slotChips.appendChild(btn);
+      });
+      slotChips.hidden = false;
+    }
+
     function mergePending(prev, next) {
       if (!next) return prev || null;
       if (!prev) return next;
@@ -866,6 +1019,10 @@
         const pOk = p !== null && p !== undefined && String(p).trim() !== "" && String(p).toLowerCase() !== "null";
         out[k] = nOk ? n : (pOk ? p : null);
       }
+      if (next._awaiting_confirm) out._awaiting_confirm = true;
+      else if (prev._awaiting_confirm && next._awaiting_confirm !== false) {
+        out._awaiting_confirm = true;
+      }
       return out;
     }
 
@@ -874,8 +1031,20 @@
       const bubble = addBubble(msg, "bot");
       const playBtn = bubble.querySelector(".bubble-play");
       speakText(msg, { playBtn });
+      setConfirmUi(Boolean(data.needs_confirmation));
+      const nextField = (data.missing_fields && data.missing_fields[0]) || null;
+      setPlaceholder(data.needs_confirmation ? "default" : nextField);
+      if (data.needs_confirmation) {
+        setSlotChips(data.suggested_replies || ["Change time", "Change date"]);
+      } else if (data.event || data.intent === "cancel_event") {
+        setSlotChips([]);
+      } else {
+        setSlotChips(data.suggested_replies || []);
+      }
       if (data.event) {
         setPending(null);
+        setConfirmUi(false);
+        setPlaceholder("default");
         return refreshEvents();
       }
       if (data.intent === "search_events") {
@@ -890,6 +1059,8 @@
         }
       } else if (data.intent === "cancel_event") {
         setPending(null);
+        setConfirmUi(false);
+        setPlaceholder("default");
       } else if (data.pending_event) {
         setPending(mergePending(pendingEvent, data.pending_event));
       } else if (data.missing_fields?.length) {
@@ -1098,6 +1269,18 @@
       await chat(text, false);
     });
 
+    confirmYes?.addEventListener("click", async () => {
+      setConfirmUi(false);
+      addBubble("Yes, save", "user");
+      await chat("yes", true);
+    });
+
+    confirmNo?.addEventListener("click", async () => {
+      setConfirmUi(false);
+      addBubble("No", "user");
+      await chat("no", false);
+    });
+
     document.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && isRecording) {
         e.preventDefault();
@@ -1128,6 +1311,9 @@
           return;
         }
         setPending(null);
+        setConfirmUi(false);
+        setSlotChips([]);
+        setPlaceholder("default");
         logEl.innerHTML = "";
         welcomeSpoken = false;
         const msg = data.message || "Chat and reminders cleared.";

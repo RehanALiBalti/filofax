@@ -266,3 +266,119 @@ def test_todo_keeps_date_and_time():
     assert locked["time"] == "21:00"
     assert locked["category"] == "To Do"
     assert next_missing(locked) is None
+
+
+def test_multi_time_prefers_last_not_first():
+    from backend.slot_fill import _parse_flexible_time
+
+    msg = "time will be I think it's 9:00 p.m. 9:25 p.m. 9:25 p.m."
+    assert _parse_flexible_time(msg) == "21:25"
+
+
+def test_time_correction_skips_negated():
+    from backend.slot_fill import _parse_flexible_time
+
+    assert _parse_flexible_time("no it's 9:25 p.m. not 9:00 p.m. please update time") == "21:25"
+
+
+def test_level_name_and_date_from_messy_create():
+    from backend.slot_fill import enrich_draft_from_message, empty_draft, next_missing
+
+    msg = (
+        "yeah I want a reminder which level is testing was wear and no no you "
+        "I think you understand wrong my level name is testing bus wear "
+        "and the reminder date is 14 August 2027"
+    )
+    out = enrich_draft_from_message(empty_draft(), msg, today=TODAY)
+    assert out["date"] == "2027-08-14"
+    assert out["label"] == "Testing Bus Wear"
+    assert next_missing(out) == "time"
+
+
+def test_time_correction_while_asking_category():
+    from backend.assistant import AssistantService
+    from backend.database import SessionLocal
+    from backend.draft_store import clear_draft, save_draft
+    from backend.models import Event
+
+    user = "test-time-correct"
+    clear_draft(user)
+    draft = {
+        "date": "2027-08-14",
+        "time": "21:00",
+        "category": None,
+        "label": "Testing Bus Wear",
+        "notes": None,
+    }
+    save_draft(user, draft)
+    svc = AssistantService(ai=None)
+    db = SessionLocal()
+    try:
+        out = svc.handle_chat(
+            db,
+            message="no it's 9:25 p.m. not 9:00 p.m. please update time",
+            user_id=user,
+            pending_event=draft,
+        )
+        assert out.pending_event is not None
+        assert out.pending_event["time"] == "21:25"
+        assert out.missing_fields[0] == "category"
+        assert "clearly" not in (out.message or "").lower()
+        assert "9:25" in (out.message or "") or "9:25" in (out.message or "").lower() or "21:25" in str(
+            out.pending_event
+        )
+    finally:
+        db.query(Event).filter(Event.user_id == user).delete()
+        db.commit()
+        db.close()
+        clear_draft(user)
+
+
+def test_absorb_any_order_while_asking_date():
+    from backend.slot_fill import absorb_user_message, empty_draft, next_missing
+
+    draft = empty_draft()
+    # Asked date, but user dumps everything backwards
+    out = absorb_user_message(
+        draft,
+        "name is Card Check, appointment at 5pm on 20 July 2027",
+        preferred_field="date",
+        today=TODAY,
+    )
+    assert out is not None
+    assert out["date"] == "2027-07-20"
+    assert out["time"] == "17:00"
+    assert out["category"] == "Appointment"
+    assert out["label"] == "Card Check"
+    assert next_missing(out) is None
+
+
+def test_label_ask_does_not_swallow_time():
+    from backend.slot_fill import absorb_user_message, next_missing
+
+    draft = {
+        "date": "2027-08-14",
+        "time": None,
+        "category": "Appointment",
+        "label": None,
+        "notes": None,
+    }
+    # Preferred is label (last ask), but user gives time
+    out = absorb_user_message(
+        draft, "9:25 pm", preferred_field="label", today=TODAY
+    )
+    assert out is not None
+    assert out["time"] == "21:25"
+    assert out["label"] is None
+    assert next_missing(out) == "label"
+
+
+def test_category_first_then_still_asks_date():
+    from backend.slot_fill import absorb_user_message, empty_draft, next_missing
+
+    out = absorb_user_message(
+        empty_draft(), "Important", preferred_field="date", today=TODAY
+    )
+    assert out is not None
+    assert out["category"] == "Important"
+    assert next_missing(out) == "date"

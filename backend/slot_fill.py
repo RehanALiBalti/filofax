@@ -157,52 +157,80 @@ def _parse_relative_date(text: str, today: date) -> date | None:
     return None
 
 
+def _hhmm_from_parts(hour: int, minute: int, ampm: str = "") -> str | None:
+    if ampm == "pm" and hour < 12:
+        hour += 12
+    if ampm == "am" and hour == 12:
+        hour = 0
+    if 0 <= hour <= 23 and 0 <= minute <= 59:
+        return f"{hour:02d}:{minute:02d}"
+    return None
+
+
+def _is_negated_time_match(text: str, match_start: int) -> bool:
+    """True when the time is preceded by not / instead of (e.g. 'not 9:00')."""
+    before = text[max(0, match_start - 14) : match_start]
+    return bool(re.search(r"\b(?:not|n't|instead\s+of)\s+$", before))
+
+
 def _parse_flexible_time(text: str) -> str | None:
+    """
+    Extract a time. When several times appear, use the last non-negated one
+    so '9:00 … 9:25' and '9:25 not 9:00' both resolve to 9:25.
+    """
     original = text.strip().lower()
     t = original.replace("p.m.", "pm").replace("a.m.", "am").replace("p.m", "pm").replace("a.m", "am")
     t = t.replace("baje", " ").replace("bajay", " ").replace("o'clock", " ")
     t = re.sub(r"\s+", " ", t).strip()
 
-    # Explicit am/pm: "at 9 pm", "9:30pm", "9 p m"
-    m = re.search(r"(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b", t)
-    if m:
-        hour = int(m.group(1))
-        minute = int(m.group(2) or 0)
-        ampm = m.group(3)
-        if ampm == "pm" and hour < 12:
-            hour += 12
-        if ampm == "am" and hour == 12:
-            hour = 0
-        if 0 <= hour <= 23 and 0 <= minute <= 59:
-            return f"{hour:02d}:{minute:02d}"
+    ampm_hits: list[str] = []
+    for m in re.finditer(r"(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b", t):
+        if _is_negated_time_match(t, m.start()):
+            continue
+        value = _hhmm_from_parts(int(m.group(1)), int(m.group(2) or 0), m.group(3))
+        if value:
+            ampm_hits.append(value)
+    if ampm_hits:
+        return ampm_hits[-1]
 
-    # Also accept "timer/time is 9pm" style
-    m = re.search(r"(?:time|timer|waqt)\s+is\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b", t)
-    if m:
-        hour = int(m.group(1))
-        minute = int(m.group(2) or 0)
-        ampm = m.group(3) or ""
-        if ampm == "pm" and hour < 12:
-            hour += 12
-        if ampm == "am" and hour == 12:
-            hour = 0
-        if 0 <= hour <= 23 and 0 <= minute <= 59:
-            return f"{hour:02d}:{minute:02d}"
+    # "time/timer/waqt is 9pm" — last match wins
+    time_is_hits: list[str] = []
+    for m in re.finditer(
+        r"(?:time|timer|waqt)\s+(?:will\s+be|is)\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b",
+        t,
+    ):
+        if _is_negated_time_match(t, m.start()):
+            continue
+        value = _hhmm_from_parts(int(m.group(1)), int(m.group(2) or 0), m.group(3) or "")
+        if value:
+            time_is_hits.append(value)
+    if time_is_hits:
+        return time_is_hits[-1]
 
-    # 24h clock like 21:00
-    m24 = re.search(r"\b([01]?\d|2[0-3]):([0-5]\d)\b", t)
-    if m24:
-        return f"{int(m24.group(1)):02d}:{m24.group(2)}"
+    # 24h clock like 21:00 / 21:25 — last non-negated
+    hits_24: list[str] = []
+    for m24 in re.finditer(r"\b([01]?\d|2[0-3]):([0-5]\d)\b", t):
+        if _is_negated_time_match(t, m24.start()):
+            continue
+        hits_24.append(f"{int(m24.group(1)):02d}:{m24.group(2)}")
+    if hits_24:
+        return hits_24[-1]
 
-    # "sham 4" / evening without am/pm
-    m2 = re.search(r"(\d{1,2})(?::(\d{2}))?", t)
-    if m2 and any(w in original for w in ("sham", "evening", "night", "baje", "bajay")):
-        hour = int(m2.group(1))
-        minute = int(m2.group(2) or 0)
-        if any(w in original for w in ("sham", "evening", "night")) and hour < 12:
-            hour += 12
-        if 0 <= hour <= 23 and 0 <= minute <= 59:
-            return f"{hour:02d}:{minute:02d}"
+    # "sham 4" / evening without am/pm — last digit group when evening cues present
+    if any(w in original for w in ("sham", "evening", "night", "baje", "bajay")):
+        evening_hits: list[str] = []
+        for m2 in re.finditer(r"(\d{1,2})(?::(\d{2}))?", t):
+            if _is_negated_time_match(t, m2.start()):
+                continue
+            hour = int(m2.group(1))
+            minute = int(m2.group(2) or 0)
+            if any(w in original for w in ("sham", "evening", "night")) and hour < 12:
+                hour += 12
+            value = _hhmm_from_parts(hour, minute)
+            if value:
+                evening_hits.append(value)
+        if evening_hits:
+            return evening_hits[-1]
 
     parsed = _parse_time(text)
     if parsed:
@@ -467,6 +495,8 @@ def message_has_explicit_label(text: str) -> bool:
     lower = text.strip().lower()
     if re.search(r"(?:label|title)\s+(?:will\s+be|is|:)\s*\S+", lower):
         return True
+    if re.search(r"(?:my\s+)?(?:level\s+|event\s+|reminder\s+)?name\s+(?:will\s+be|is|:)\s*\S+", lower):
+        return True
     if re.search(r"\bas\s+(?:a|an)\s+\S+", lower):
         return True
     if re.search(r"(?:name\s+it|call\s+it|titled|named)\s+\S+", lower):
@@ -474,9 +504,21 @@ def message_has_explicit_label(text: str) -> bool:
     return False
 
 
+_LABEL_TAIL_SPLIT = re.compile(
+    r"\s+and\s+(?:the\s+)?(?:reminder\s+)?(?:date|time|category|label|title)\b"
+    r"|\s+and\s+the\s+reminder\b"
+    r"|\s+on\s+\d{1,2}\b"
+    r"|\s+for\s+\d{1,2}\b"
+    r"|[.,;]",
+    flags=re.IGNORECASE,
+)
+
+
 def _clean_label(raw: str) -> str | None:
     s = raw.strip(" .!?,;:\"'")
     s = re.sub(r"\s+", " ", s)
+    # Cut trailing date/time chatter if the cue pattern missed it
+    s = _LABEL_TAIL_SPLIT.split(s, maxsplit=1)[0].strip(" .!?,;:\"'")
     s = re.sub(r"\s+(please|thanks|thank you|now)\.?$", "", s, flags=re.IGNORECASE)
     if not s:
         return None
@@ -484,8 +526,13 @@ def _clean_label(raw: str) -> str | None:
         s = s[:255].rstrip()
     if s.lower() in {"to do", "todo", "appointment", "important", "event", "reminder"}:
         return None
-    if len(s.split()) <= 6:
-        s = " ".join(w[:1].upper() + w[1:] if w else w for w in s.split())
+    # Keep labels reasonably short (STT dumps get truncated)
+    words = s.split()
+    if len(words) > 8:
+        s = " ".join(words[:8])
+        words = s.split()
+    if len(words) <= 6:
+        s = " ".join(w[:1].upper() + w[1:] if w else w for w in words)
     return s
 
 
@@ -495,23 +542,27 @@ def _extract_label(text: str) -> str | None:
     if not t:
         return None
 
+    # Last successful cue wins (user often corrects mid-sentence).
     patterns = [
-        r"(?:label|title)\s+(?:will\s+be|is|:)\s*(.+)$",
-        r"(?:name\s+it|call\s+it|titled|named)\s+(.+)$",
-        r"\bas\s+(?:a|an)\s+(.+)$",
+        r"(?:label|title)\s+(?:will\s+be|is|:)\s*(.+?)(?=\s+and\s+(?:the\s+)?(?:reminder\s+)?(?:date|time|category|label)\b|$)",
+        r"(?:my\s+)?(?:level\s+|event\s+|reminder\s+)?name\s+(?:will\s+be|is|:)\s*(.+?)(?=\s+and\s+(?:the\s+)?(?:reminder\s+)?(?:date|time|category|label)\b|$)",
+        r"(?:name\s+it|call\s+it|titled|named)\s+(.+?)(?=\s+and\s+(?:the\s+)?(?:reminder\s+)?(?:date|time|category|label)\b|$)",
+        r"\bas\s+(?:a|an)\s+(.+?)(?=\s+and\s+(?:the\s+)?(?:reminder\s+)?(?:date|time|category|label)\b|$)",
         r"(?:enable|set|save|make)\s+(?:this\s+)?(?:event|reminder)?\s*as\s+(?:a|an)\s+(.+)$",
         r"(?:label|title)\s+(?:should\s+be|to)\s+(.+)$",
     ]
+    found: str | None = None
     for pat in patterns:
-        m = re.search(pat, t, flags=re.IGNORECASE)
-        if m:
+        for m in re.finditer(pat, t, flags=re.IGNORECASE):
             value = _clean_label(m.group(1))
             if value:
-                return value
+                found = value
+    if found:
+        return found
 
     words = t.split()
     if len(words) <= 6 and not re.match(
-        r"^(can|could|would|please|kindly|i\s+want|i\s+need)\b",
+        r"^(can|could|would|please|kindly|i\s+want|i\s+need|yeah|yes|yep)\b",
         t,
         flags=re.IGNORECASE,
     ):
@@ -653,6 +704,14 @@ def apply_slot_reply(
         return updated
 
     if field == "label":
+        # Never treat a bare date / time / category answer as the event name
+        if message_has_explicit_time(text) and not message_has_explicit_label(text):
+            return None
+        if message_has_explicit_date(text) and not message_has_explicit_label(text):
+            return None
+        if message_has_explicit_category(text) and not message_has_explicit_label(text):
+            if len(text.split()) <= 4:
+                return None
         value = _extract_label(text)
         if not value:
             # Last resort: use full text only if it's reasonably short
@@ -664,6 +723,73 @@ def apply_slot_reply(
         return updated
 
     return None
+
+
+def _slot_filled(event: dict[str, Any], key: str) -> bool:
+    value = event.get(key)
+    return value is not None and str(value).strip() != "" and str(value).lower() != "null"
+
+
+def absorb_user_message(
+    draft: dict[str, Any],
+    message: str,
+    *,
+    preferred_field: str | None = None,
+    today: date | None = None,
+) -> dict[str, Any] | None:
+    """
+    Order-agnostic intake: pull date / time / category / label from whatever the
+    user said, even if it is not the field we asked for (or they packed several
+    at once / corrected an earlier answer).
+
+    Returns an updated draft when anything new was filled or changed, else None.
+    """
+    today = today or date.today()
+    text = message.strip()
+    if not text:
+        return None
+
+    before = dict(draft)
+    out = enrich_draft_from_message(dict(draft), text, today=today)
+
+    # Fill still-empty slots. Label last — it is the greediest matcher.
+    for field in ("date", "time", "category", "label"):
+        if _slot_filled(out, field):
+            continue
+        filled = apply_slot_reply(pending=out, message=text, field=field, today=today)
+        if filled is not None:
+            out = filled
+
+    # Preferred slot as last resort if still empty (short answers like "tomorrow")
+    if preferred_field and not _slot_filled(out, preferred_field):
+        filled = apply_slot_reply(
+            pending=out, message=text, field=preferred_field, today=today
+        )
+        if filled is not None:
+            out = filled
+
+    changed = False
+    for key in ("date", "time", "category", "label", "notes"):
+        prev = before.get(key)
+        cur = out.get(key)
+        prev_empty = not _slot_filled(before, key) if key != "notes" else (
+            prev is None or str(prev).strip() == ""
+        )
+        cur_ok = _slot_filled(out, key) if key != "notes" else (
+            cur is not None and str(cur).strip() != ""
+        )
+        if prev_empty and cur_ok:
+            changed = True
+            break
+        if (
+            not prev_empty
+            and cur_ok
+            and str(prev).strip() != str(cur).strip()
+        ):
+            changed = True
+            break
+
+    return out if changed else None
 
 
 def ask_again(

@@ -229,16 +229,15 @@ def _validate_create(
             requires_confirmation=False,
         )
 
-    # Complete — backend auto-saves (no user confirmation wait)
-    _ = requires_confirmation  # ignored: Blueline-style auto add_reminder
+    # Complete — soft confirm before save (assistant asks user)
     return ValidationResult(
         ok=True,
         intent="create_event",
         language=language,
         confidence=confidence,
         event=normalized,
-        message=clarification or "Got it! I've added your event.",
-        requires_confirmation=False,
+        message=clarification or "Ready to save — please confirm.",
+        requires_confirmation=True,
         requires_clarification=False,
     )
 
