@@ -126,53 +126,160 @@
       border: none;
       padding: 0 0.2rem;
     }
-    form {
-      display: flex;
-      gap: 0.5rem;
-      padding: 0.9rem;
+    .composer {
       border-top: 1px solid var(--line);
+      background: #e8e4dc;
+      padding: 0.55rem 0.65rem;
+    }
+    .composer-row {
+      display: flex;
       align-items: center;
+      gap: 0.45rem;
+      min-height: 3rem;
     }
-    input[type="text"] {
+    .composer-row[hidden] { display: none !important; }
+    .composer-input-wrap {
       flex: 1;
-      border: 1px solid var(--line);
-      border-radius: 0.75rem;
-      padding: 0.75rem 0.9rem;
-      font: inherit;
+      display: flex;
+      align-items: center;
       background: #fff;
+      border-radius: 1.5rem;
+      border: 1px solid rgba(26, 35, 50, 0.08);
+      padding: 0.15rem 0.85rem;
+      min-height: 2.65rem;
     }
-    button {
+    .composer-input-wrap input[type="text"] {
+      flex: 1;
+      border: 0;
+      outline: none;
+      padding: 0.55rem 0;
+      font: inherit;
+      background: transparent;
+      min-width: 0;
+    }
+    .composer-input-wrap input::placeholder { color: #8a97a6; }
+    .icon-btn {
+      border: 0;
+      width: 2.85rem;
+      height: 2.85rem;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      flex-shrink: 0;
+      padding: 0;
+      font: inherit;
+      transition: transform 0.12s ease, background 0.12s ease;
+    }
+    .icon-btn:active { transform: scale(0.94); }
+    .icon-btn:disabled { opacity: 0.5; cursor: wait; }
+    .icon-btn svg { width: 1.35rem; height: 1.35rem; display: block; }
+    .icon-btn.mic {
+      background: var(--accent);
+      color: #fff;
+    }
+    .icon-btn.send {
+      background: var(--accent);
+      color: #fff;
+    }
+    .icon-btn.send[hidden],
+    .icon-btn.mic[hidden] { display: none !important; }
+    .icon-btn.stop-send {
+      background: var(--accent);
+      color: #fff;
+    }
+    .icon-btn.cancel-rec {
+      background: transparent;
+      color: var(--muted);
+      width: 2.5rem;
+      height: 2.5rem;
+    }
+    .icon-btn.cancel-rec:hover { color: var(--danger); }
+    button.ghost {
       border: 0;
       border-radius: 0.75rem;
-      padding: 0.75rem 1rem;
+      padding: 0.65rem 1rem;
       font: inherit;
       font-weight: 600;
-      background: var(--ink);
-      color: #fff;
+      background: var(--accent-soft);
+      color: var(--accent);
       cursor: pointer;
     }
-    button:disabled { opacity: 0.55; cursor: wait; }
-    button.ghost {
-      background: var(--accent-soft);
-      color: var(--accent);
+    .rec-bar {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+      min-width: 0;
+      padding: 0 0.25rem;
     }
-    button.mic {
-      background: var(--accent-soft);
-      color: var(--accent);
-      min-width: 3rem;
-      padding: 0.75rem 0.85rem;
+    .rec-dot {
+      width: 0.7rem;
+      height: 0.7rem;
+      border-radius: 50%;
+      background: #e53935;
+      flex-shrink: 0;
+      animation: recBlink 1s ease-in-out infinite;
     }
-    button.mic.recording {
-      background: var(--danger);
-      color: #fff;
-      animation: pulse 1.2s ease-in-out infinite;
+    @keyframes recBlink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.25; }
     }
-    @keyframes pulse {
-      0%, 100% { transform: scale(1); }
-      50% { transform: scale(1.05); }
+    .rec-timer {
+      font-variant-numeric: tabular-nums;
+      font-weight: 600;
+      font-size: 0.95rem;
+      color: var(--ink);
+      min-width: 2.5rem;
+    }
+    .rec-wave {
+      flex: 1;
+      height: 1.75rem;
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      min-width: 0;
+      overflow: hidden;
+    }
+    .rec-wave span {
+      width: 3px;
+      border-radius: 2px;
+      background: #25d366;
+      animation: wave 0.9s ease-in-out infinite;
+    }
+    .rec-wave span:nth-child(1) { height: 8px; animation-delay: 0s; }
+    .rec-wave span:nth-child(2) { height: 16px; animation-delay: 0.1s; }
+    .rec-wave span:nth-child(3) { height: 11px; animation-delay: 0.2s; }
+    .rec-wave span:nth-child(4) { height: 20px; animation-delay: 0.15s; }
+    .rec-wave span:nth-child(5) { height: 9px; animation-delay: 0.25s; }
+    .rec-wave span:nth-child(6) { height: 15px; animation-delay: 0.05s; }
+    .rec-wave span:nth-child(7) { height: 18px; animation-delay: 0.18s; }
+    .rec-wave span:nth-child(8) { height: 10px; animation-delay: 0.3s; }
+    @keyframes wave {
+      0%, 100% { transform: scaleY(0.55); opacity: 0.55; }
+      50% { transform: scaleY(1); opacity: 1; }
+    }
+    .rec-hint {
+      font-size: 0.75rem;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+    @media (max-width: 520px) {
+      .rec-hint { display: none; }
+    }
+    .bubble.voice {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
     }
     .bubble.voice::before {
-      content: "🎤 ";
+      content: "";
+      width: 0.55rem;
+      height: 0.55rem;
+      border-radius: 50%;
+      background: #25d366;
+      flex-shrink: 0;
     }
     .bubble.typing {
       display: inline-flex;
@@ -235,12 +342,37 @@
         <h2>Assistant</h2>
         <div id="log"></div>
         <div class="actions" id="confirmBar" hidden>
-          <button type="button" id="cancelBtn">Cancel draft</button>
+          <button type="button" class="ghost" id="cancelBtn">Cancel draft</button>
         </div>
-        <form id="chatForm">
-          <input id="message" type="text" placeholder="Type… or tap 🎤 for voice note" autocomplete="off" />
-          <button type="button" class="mic" id="micBtn" title="Record voice note">🎤</button>
-          <button type="submit" id="sendBtn">Send</button>
+        <form id="chatForm" class="composer" autocomplete="off">
+          <div class="composer-row" id="textRow">
+            <div class="composer-input-wrap">
+              <input id="message" type="text" placeholder="Message" autocomplete="off" />
+            </div>
+            <button type="button" class="icon-btn mic" id="micBtn" title="Voice note" aria-label="Voice note">
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg>
+            </button>
+            <button type="submit" class="icon-btn send" id="sendBtn" title="Send" aria-label="Send" hidden>
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+            </button>
+          </div>
+          <div class="composer-row" id="recRow" hidden>
+            <button type="button" class="icon-btn cancel-rec" id="cancelRecBtn" title="Cancel" aria-label="Cancel recording">
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+            </button>
+            <div class="rec-bar">
+              <span class="rec-dot" aria-hidden="true"></span>
+              <span class="rec-timer" id="recTimer">0:00</span>
+              <div class="rec-wave" aria-hidden="true">
+                <span></span><span></span><span></span><span></span>
+                <span></span><span></span><span></span><span></span>
+              </div>
+              <span class="rec-hint">Enter / stop to send</span>
+            </div>
+            <button type="button" class="icon-btn stop-send" id="stopRecBtn" title="Send voice note" aria-label="Send voice note">
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+            </button>
+          </div>
         </form>
       </section>
 
@@ -266,6 +398,11 @@
     const input = document.getElementById("message");
     const sendBtn = document.getElementById("sendBtn");
     const micBtn = document.getElementById("micBtn");
+    const textRow = document.getElementById("textRow");
+    const recRow = document.getElementById("recRow");
+    const recTimerEl = document.getElementById("recTimer");
+    const stopRecBtn = document.getElementById("stopRecBtn");
+    const cancelRecBtn = document.getElementById("cancelRecBtn");
     const confirmBar = document.getElementById("confirmBar");
     const cancelBtn = document.getElementById("cancelBtn");
     const healthEl = document.getElementById("health");
@@ -275,6 +412,50 @@
     let mediaStream = null;
     let audioChunks = [];
     let isRecording = false;
+    let discardRecording = false;
+    let recStartedAt = 0;
+    let recTimerId = null;
+
+    function syncComposerButtons() {
+      const hasText = input.value.trim().length > 0;
+      micBtn.hidden = hasText;
+      sendBtn.hidden = !hasText;
+    }
+
+    function formatRecTime(ms) {
+      const sec = Math.floor(ms / 1000);
+      const m = Math.floor(sec / 60);
+      const s = sec % 60;
+      return `${m}:${String(s).padStart(2, "0")}`;
+    }
+
+    function showRecordingUi() {
+      textRow.hidden = true;
+      recRow.hidden = false;
+      recStartedAt = Date.now();
+      recTimerEl.textContent = "0:00";
+      clearInterval(recTimerId);
+      recTimerId = setInterval(() => {
+        recTimerEl.textContent = formatRecTime(Date.now() - recStartedAt);
+      }, 250);
+    }
+
+    function hideRecordingUi() {
+      clearInterval(recTimerId);
+      recTimerId = null;
+      recRow.hidden = true;
+      textRow.hidden = false;
+      syncComposerButtons();
+      input.focus();
+    }
+
+    function setBusy(busy) {
+      sendBtn.disabled = busy;
+      micBtn.disabled = busy;
+      stopRecBtn.disabled = busy;
+      cancelRecBtn.disabled = busy;
+      input.disabled = busy;
+    }
 
     function addBubble(text, who, extraClass = "") {
       const div = document.createElement("div");
@@ -348,8 +529,7 @@
     }
 
     async function chat(message, confirm = false) {
-      sendBtn.disabled = true;
-      micBtn.disabled = true;
+      setBusy(true);
       showTyping("Thinking…");
       try {
         const body = {
@@ -371,14 +551,12 @@
         hideTyping();
         addBubble("Request failed: " + err.message, "bot");
       } finally {
-        sendBtn.disabled = false;
-        micBtn.disabled = false;
+        setBusy(false);
       }
     }
 
     async function sendVoice(blob) {
-      sendBtn.disabled = true;
-      micBtn.disabled = true;
+      setBusy(true);
       showTyping("Listening / transcribing…");
       try {
         const formData = new FormData();
@@ -406,8 +584,7 @@
         hideTyping();
         addBubble("Voice request failed: " + err.message, "bot");
       } finally {
-        sendBtn.disabled = false;
-        micBtn.disabled = false;
+        setBusy(false);
       }
     }
 
@@ -419,6 +596,7 @@
       try {
         mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
         audioChunks = [];
+        discardRecording = false;
         const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
           ? "audio/webm;codecs=opus"
           : (MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "");
@@ -431,8 +609,13 @@
         mediaRecorder.onstop = async () => {
           mediaStream?.getTracks().forEach((t) => t.stop());
           mediaStream = null;
+          hideRecordingUi();
           const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType || "audio/webm" });
           audioChunks = [];
+          if (discardRecording) {
+            discardRecording = false;
+            return;
+          }
           if (blob.size < 200) {
             addBubble("Voice note too short. Try again.", "bot");
             return;
@@ -441,36 +624,51 @@
         };
         mediaRecorder.start();
         isRecording = true;
-        micBtn.classList.add("recording");
-        micBtn.textContent = "⏹";
-        micBtn.title = "Stop recording";
-        addBubble("Recording… tap ⏹ to send", "meta");
+        showRecordingUi();
       } catch (err) {
         addBubble("Microphone permission denied or unavailable.", "bot");
       }
     }
 
-    function stopRecording() {
+    function stopRecording({ discard = false } = {}) {
       if (!mediaRecorder || mediaRecorder.state === "inactive") return;
+      discardRecording = discard;
       isRecording = false;
-      micBtn.classList.remove("recording");
-      micBtn.textContent = "🎤";
-      micBtn.title = "Record voice note";
       mediaRecorder.stop();
     }
 
     micBtn.addEventListener("click", async () => {
-      if (isRecording) stopRecording();
-      else await startRecording();
+      if (!isRecording) await startRecording();
     });
+
+    stopRecBtn.addEventListener("click", () => stopRecording());
+    cancelRecBtn.addEventListener("click", () => stopRecording({ discard: true }));
+
+    input.addEventListener("input", syncComposerButtons);
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
+      if (isRecording) {
+        stopRecording();
+        return;
+      }
       const text = input.value.trim();
       if (!text) return;
       addBubble(text, "user");
       input.value = "";
+      syncComposerButtons();
       await chat(text, false);
+    });
+
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && isRecording) {
+        e.preventDefault();
+        stopRecording();
+      }
+      if (e.key === "Escape" && isRecording) {
+        e.preventDefault();
+        stopRecording({ discard: true });
+      }
     });
 
     cancelBtn.addEventListener("click", async () => {
@@ -500,7 +698,8 @@
       }
     }
 
-    addBubble("Text ya 🎤 voice note: date → time → category → label. Missing clear hone tak poochta rahega.", "bot");
+    syncComposerButtons();
+    addBubble("Text ya voice note: date → time → category → label. Missing clear hone tak poochta rahega.", "bot");
     checkHealth();
     refreshEvents();
   </script>

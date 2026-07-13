@@ -90,3 +90,32 @@ def test_relative_date_kal():
     empty = {"date": None, "time": None, "category": None, "label": None}
     out = apply_slot_reply(pending=empty, message="kal", field="date", today=TODAY)
     assert out["date"] == "2026-07-11"
+
+
+def test_ordinal_date_twentieth_july():
+    from backend.slot_fill import enrich_draft_from_message, empty_draft, message_has_explicit_date
+
+    assert message_has_explicit_date("20th July")
+    assert message_has_explicit_date("July 20th")
+    empty = {"date": None, "time": "21:00", "category": None, "label": None}
+    out = apply_slot_reply(pending=empty, message="20th July", field="date", today=TODAY)
+    assert out is not None
+    assert out["date"] == "2026-07-20"
+    enriched = enrich_draft_from_message(
+        {"date": "2026-07-20", "time": "21:00", "category": None, "label": None},
+        "20th July",
+        today=TODAY,
+    )
+    assert enriched["date"] == "2026-07-20"
+    from_msg = enrich_draft_from_message(empty_draft(), "20th July at 9pm", today=TODAY)
+    assert from_msg["date"] == "2026-07-20"
+    assert from_msg["time"] == "21:00"
+
+
+def test_timer_is_nine_pm():
+    draft = {"date": "2026-07-20", "time": None, "category": None, "label": None}
+    out = apply_slot_reply(
+        pending=draft, message="The timer is 9pm.", field="time", today=TODAY
+    )
+    assert out is not None
+    assert out["time"] == "21:00"

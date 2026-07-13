@@ -39,6 +39,76 @@ def empty_draft() -> dict[str, Any]:
     }
 
 
+_MONTHS = {
+    "jan": 1,
+    "january": 1,
+    "feb": 2,
+    "february": 2,
+    "mar": 3,
+    "march": 3,
+    "apr": 4,
+    "april": 4,
+    "may": 5,
+    "jun": 6,
+    "june": 6,
+    "jul": 7,
+    "july": 7,
+    "aug": 8,
+    "august": 8,
+    "sep": 9,
+    "sept": 9,
+    "september": 9,
+    "oct": 10,
+    "october": 10,
+    "nov": 11,
+    "november": 11,
+    "dec": 12,
+    "december": 12,
+}
+
+
+def _strip_ordinals(text: str) -> str:
+    return re.sub(r"(\d+)(st|nd|rd|th)\b", r"\1", text, flags=re.IGNORECASE)
+
+
+def _parse_month_day_date(text: str, today: date) -> date | None:
+    """Parse '20th July', 'July 20', '20 July 2026'."""
+    t = _strip_ordinals(text.strip().lower())
+    t = re.sub(r"\s+", " ", t)
+    names = "|".join(_MONTHS.keys())
+
+    m = re.search(rf"\b(\d{{1,2}})\s+(?:of\s+)?({names})(?:\s*,?\s*(\d{{4}}))?\b", t)
+    if m:
+        day, month = int(m.group(1)), _MONTHS[m.group(2)]
+        year = int(m.group(3)) if m.group(3) else today.year
+        try:
+            value = date(year, month, day)
+        except ValueError:
+            return None
+        if not m.group(3) and value < today:
+            try:
+                value = date(today.year + 1, month, day)
+            except ValueError:
+                return None
+        return value
+
+    m = re.search(rf"\b({names})\s+(\d{{1,2}})(?:\s*,?\s*(\d{{4}}))?\b", t)
+    if m:
+        month, day = _MONTHS[m.group(1)], int(m.group(2))
+        year = int(m.group(3)) if m.group(3) else today.year
+        try:
+            value = date(year, month, day)
+        except ValueError:
+            return None
+        if not m.group(3) and value < today:
+            try:
+                value = date(today.year + 1, month, day)
+            except ValueError:
+                return None
+        return value
+    return None
+
+
 def _parse_relative_date(text: str, today: date) -> date | None:
     t = text.strip().lower()
     if t in {"today", "aaj", "aj"}:
@@ -50,7 +120,10 @@ def _parse_relative_date(text: str, today: date) -> date | None:
     if t in {"yesterday", "kal se pehle"}:
         return today - timedelta(days=1)
 
-    # next monday / is monday etc.
+    month_day = _parse_month_day_date(text, today)
+    if month_day:
+        return month_day
+
     weekdays = {
         "monday": 0,
         "tuesday": 1,
@@ -61,21 +134,27 @@ def _parse_relative_date(text: str, today: date) -> date | None:
         "sunday": 6,
     }
     for name, idx in weekdays.items():
-        if name in t:
+        if re.search(rf"\b{name}\b", t):
             delta = (idx - today.weekday()) % 7
             if "next" in t and delta == 0:
                 delta = 7
-            if delta == 0 and "next" not in t:
+            if delta == 0 and "next" not in t and "this" not in t:
                 delta = 7
             return today + timedelta(days=delta or 7)
 
-    parsed = _parse_date(text)
-    if parsed:
-        return parsed
-    try:
-        return date_parser.parse(text, fuzzy=True, default=datetime.combine(today, datetime.min.time())).date()
-    except (ValueError, OverflowError, TypeError):
-        return None
+    if re.search(r"\b20\d{2}-\d{2}-\d{2}\b", t) or re.search(
+        r"\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b", t
+    ):
+        parsed = _parse_date(text)
+        if parsed:
+            return parsed
+        try:
+            return date_parser.parse(
+                text, fuzzy=True, default=datetime.combine(today, datetime.min.time())
+            ).date()
+        except (ValueError, OverflowError, TypeError):
+            return None
+    return None
 
 
 def _parse_flexible_time(text: str) -> str | None:
@@ -90,6 +169,19 @@ def _parse_flexible_time(text: str) -> str | None:
         hour = int(m.group(1))
         minute = int(m.group(2) or 0)
         ampm = m.group(3)
+        if ampm == "pm" and hour < 12:
+            hour += 12
+        if ampm == "am" and hour == 12:
+            hour = 0
+        if 0 <= hour <= 23 and 0 <= minute <= 59:
+            return f"{hour:02d}:{minute:02d}"
+
+    # Also accept "timer/time is 9pm" style
+    m = re.search(r"(?:time|timer|waqt)\s+is\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b", t)
+    if m:
+        hour = int(m.group(1))
+        minute = int(m.group(2) or 0)
+        ampm = m.group(3) or ""
         if ampm == "pm" and hour < 12:
             hour += 12
         if ampm == "am" and hour == 12:
@@ -119,10 +211,12 @@ def _parse_flexible_time(text: str) -> str | None:
 
 
 def message_has_explicit_date(text: str) -> bool:
-    """True only when the user clearly stated a calendar date (not place names, etc.)."""
-    lower = text.strip().lower()
+    """True only when the user clearly stated a calendar date."""
+    lower = _strip_ordinals(text.strip().lower())
     if not lower:
         return False
+    if _parse_month_day_date(text, date.today()) is not None:
+        return True
     cues = [
         r"\btoday\b",
         r"\baaj\b",
@@ -136,7 +230,7 @@ def message_has_explicit_date(text: str) -> bool:
         r"\b20\d{2}-\d{2}-\d{2}\b",
         r"\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b",
         r"\b(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\s+\d{1,2}\b",
-        r"\b\d{1,2}\s+(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\b",
+        r"\b\d{1,2}\s+(?:of\s+)?(jan|january|feb|february|mar|march|apr|april|may|jun|june|jul|july|aug|august|sep|sept|september|oct|october|nov|november|dec|december)\b",
     ]
     return any(re.search(p, lower) for p in cues)
 
@@ -187,6 +281,10 @@ def enrich_draft_from_message(
                     out["date"] = value.isoformat()
                     break
         if not out.get("date"):
+            value = _parse_month_day_date(text, today)
+            if value:
+                out["date"] = value.isoformat()
+        if not out.get("date"):
             m = re.search(r"\b(20\d{2}-\d{2}-\d{2})\b", text)
             if m:
                 out["date"] = m.group(1)
@@ -200,7 +298,7 @@ def enrich_draft_from_message(
                 "saturday",
                 "sunday",
             ):
-                if name in lower:
+                if re.search(rf"\b{name}\b", lower):
                     value = _parse_relative_date(text, today)
                     if value:
                         out["date"] = value.isoformat()
