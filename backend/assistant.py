@@ -26,13 +26,16 @@ from backend.slot_fill import (
     ask_again,
     empty_draft,
     enrich_draft_from_message,
+    is_fresh_create_request,
     is_soft_ack,
     is_year_only_date,
     lock_confirmed_slots,
     merge_ai_into_draft,
     missing_fields,
     next_missing,
+    scrub_invented_category,
     scrub_invented_date,
+    scrub_invented_label,
     scrub_invented_time,
 )
 from backend.validators import pending_event_to_create_kwargs, validate_ai_response
@@ -102,8 +105,14 @@ class AssistantService:
                 message=help_message(lang),
             )
 
-        pending_event = merge_client_pending(user_id, pending_event)
-        draft = merge_ai_into_draft(pending_event, None) if pending_event else None
+        # New "add reminder / create event" always starts clean — ignore stale server/client draft
+        if is_fresh_create_request(text):
+            clear_draft(user_id)
+            pending_event = None
+            draft = None
+        else:
+            pending_event = merge_client_pending(user_id, pending_event)
+            draft = merge_ai_into_draft(pending_event, None) if pending_event else None
 
         if draft and _is_cancel(text):
             clear_draft(user_id)
@@ -158,9 +167,11 @@ class AssistantService:
         )):
             merged = merge_ai_into_draft(draft, validated.event)
             merged = enrich_draft_from_message(merged, text)
-            # Never keep an AI-guessed date/time when user did not state one
+            # Never keep AI-guessed slots when user did not state them
             merged = scrub_invented_date(merged, text, trusted_pending=pending_event)
             merged = scrub_invented_time(merged, text, trusted_pending=pending_event)
+            merged = scrub_invented_category(merged, text, trusted_pending=pending_event)
+            merged = scrub_invented_label(merged, text, trusted_pending=pending_event)
             return self._finish_or_ask(db, user_id, merged, language, validated.confidence, ai_result)
 
         # Unclear start — begin create flow by asking for date
@@ -183,6 +194,8 @@ class AssistantService:
                 draft = enrich_draft_from_message(empty_draft(), text)
                 draft = scrub_invented_date(draft, text)
                 draft = scrub_invented_time(draft, text)
+                draft = scrub_invented_category(draft, text)
+                draft = scrub_invented_label(draft, text)
                 return self._finish_or_ask(db, user_id, draft, language, 0.7, ai_result)
             return AssistantResponse(
                 ok=True,
@@ -240,6 +253,7 @@ class AssistantService:
         if filled is not None:
             filled = enrich_draft_from_message(filled, text)
             filled = lock_confirmed_slots(draft, filled, allow_update={field})
+            filled = self._scrub_unasked_inventions(filled, text, draft, field)
             return self._finish_or_ask(db, user_id, filled, language, 0.95, None)
 
         # User may answer a different missing field (e.g. time while date was lost client-side)
@@ -250,11 +264,13 @@ class AssistantService:
             if alt is not None:
                 alt = enrich_draft_from_message(alt, text)
                 alt = lock_confirmed_slots(draft, alt, allow_update={other})
+                alt = self._scrub_unasked_inventions(alt, text, draft, other)
                 return self._finish_or_ask(db, user_id, alt, language, 0.95, None)
 
         # Also try enriching whole message (user may answer multiple fields)
         enriched = enrich_draft_from_message(dict(draft), text)
         enriched = lock_confirmed_slots(draft, enriched)
+        enriched = self._scrub_unasked_inventions(enriched, text, draft, field)
         if missing_fields(enriched) != missing_fields(draft):
             return self._finish_or_ask(db, user_id, enriched, language, 0.9, None)
 
@@ -292,6 +308,7 @@ class AssistantService:
             merged = merge_ai_into_draft(draft, validated.event)
             merged = enrich_draft_from_message(merged, text)
             merged = lock_confirmed_slots(draft, merged, allow_update={field})
+            merged = self._scrub_unasked_inventions(merged, text, draft, field)
             # If still missing the same field, re-ask clearly
             if field in missing_fields(merged):
                 return self._ask_next(
@@ -307,6 +324,25 @@ class AssistantService:
             )
         except AIServiceError:
             return self._ask_next(draft, language, confidence=0.5, retry=True, user_id=user_id)
+
+    @staticmethod
+    def _scrub_unasked_inventions(
+        event: dict[str, Any],
+        text: str,
+        draft: dict[str, Any],
+        answered_field: str,
+    ) -> dict[str, Any]:
+        """Drop AI/heuristic values for slots the user did not just answer."""
+        out = dict(event)
+        if answered_field != "date" and not draft.get("date"):
+            out = scrub_invented_date(out, text)
+        if answered_field != "time" and not draft.get("time"):
+            out = scrub_invented_time(out, text)
+        if answered_field != "category" and not draft.get("category"):
+            out = scrub_invented_category(out, text)
+        if answered_field != "label" and not draft.get("label"):
+            out = scrub_invented_label(out, text)
+        return out
 
     def _finish_or_ask(
         self,

@@ -53,7 +53,7 @@ def test_parse_nine_pm_from_sentence():
     msg = "Hello, I want to be here to remind you at 9 p.m."
     out = enrich_draft_from_message(empty_draft(), msg, today=TODAY)
     assert out["time"] == "21:00"
-    assert out["label"] == "Reminder"
+    assert out["label"] is None  # label must be asked — never invent
     assert next_missing(out) == "date"
 
 
@@ -84,6 +84,37 @@ def test_no_date_guess_when_only_time_and_place():
     assert enriched["notes"] == "Karachi"
     assert enriched["date"] is None
     assert next_missing(enriched) == "date"
+
+
+def test_reminder_request_does_not_auto_label():
+    from backend.slot_fill import enrich_draft_from_message, empty_draft, is_fresh_create_request
+
+    assert is_fresh_create_request("Hello can you add a reminder for me")
+    assert not is_fresh_create_request("The category is to do")
+    assert not is_fresh_create_request("todo")
+    out = enrich_draft_from_message(empty_draft(), "Hello can you add a reminder for me", today=TODAY)
+    assert out["date"] is None
+    assert out["time"] is None
+    assert out["category"] is None
+    assert out["label"] is None
+    assert next_missing(out) == "date"
+
+
+def test_full_order_after_category_asks_label():
+    from backend.slot_fill import enrich_draft_from_message, lock_confirmed_slots, next_missing
+
+    draft = {
+        "date": "2026-07-08",
+        "time": "21:00",
+        "category": None,
+        "label": None,
+    }
+    filled = apply_slot_reply(pending=draft, message="todo", field="category", today=TODAY)
+    enriched = enrich_draft_from_message(filled, "todo", today=TODAY)
+    locked = lock_confirmed_slots(draft, enriched, allow_update={"category"})
+    assert locked["category"] == "To Do"
+    assert locked["label"] is None
+    assert next_missing(locked) == "label"
 
 
 def test_relative_date_kal():

@@ -380,6 +380,7 @@ def enrich_draft_from_message(
         if value:
             out["category"] = value
 
+    # Only set label when user explicitly says label/title — never invent / never auto Reminder
     if not out.get("label"):
         m = re.search(
             r"(?:label|title)\s+(?:will\s+be|is|:)\s*([^.?\n]+)",
@@ -388,12 +389,6 @@ def enrich_draft_from_message(
         )
         if m:
             out["label"] = m.group(1).strip(" .")[:255]
-        elif "remind" in lower:
-            out["label"] = "Reminder"
-        elif "meeting" in lower:
-            out["label"] = "Meeting"
-        elif "appointment" in lower:
-            out["label"] = "Appointment"
 
     if not out.get("notes"):
         m = re.search(
@@ -408,6 +403,9 @@ def enrich_draft_from_message(
                 out["notes"] = place[:500]
 
     # Never wipe slots already confirmed when user answers another field
+    prior_category = draft.get("category")
+    prior_label = draft.get("label")
+
     if prior_date:
         if message_has_explicit_date(text):
             parsed = _parse_relative_date(text, today)
@@ -425,6 +423,28 @@ def enrich_draft_from_message(
             out["time"] = prior_time
     else:
         out = scrub_invented_time(out, text)
+
+    if prior_category:
+        if message_has_explicit_category(text):
+            parsed = _parse_category_reply(text)
+            out["category"] = parsed or prior_category
+        else:
+            out["category"] = prior_category
+    else:
+        out = scrub_invented_category(out, text)
+
+    if prior_label:
+        if message_has_explicit_label(text):
+            m = re.search(
+                r"(?:label|title)\s+(?:will\s+be|is|:)\s*([^.?\n]+)",
+                text,
+                flags=re.IGNORECASE,
+            )
+            out["label"] = m.group(1).strip(" .")[:255] if m else prior_label
+        else:
+            out["label"] = prior_label
+    else:
+        out = scrub_invented_label(out, text)
 
     return out
 
@@ -445,6 +465,87 @@ def _parse_category_reply(text: str) -> str | None:
         if allowed.lower() in t:
             return allowed
     return None
+
+
+def message_has_explicit_category(text: str) -> bool:
+    return _parse_category_reply(text) is not None
+
+
+def message_has_explicit_label(text: str) -> bool:
+    lower = text.strip().lower()
+    if re.search(r"(?:label|title)\s+(?:will\s+be|is|:)\s*\S+", lower):
+        return True
+    # Short replies while answering the label slot are handled in apply_slot_reply
+    return False
+
+
+def scrub_invented_category(
+    draft: dict[str, Any],
+    message: str,
+    *,
+    trusted_pending: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    out = dict(draft)
+    if trusted_pending and trusted_pending.get("category"):
+        if message_has_explicit_category(message):
+            parsed = _parse_category_reply(message)
+            if parsed:
+                out["category"] = parsed
+                return out
+        out["category"] = trusted_pending["category"]
+        return out
+    if out.get("category") and not message_has_explicit_category(message):
+        out["category"] = None
+    return out
+
+
+def scrub_invented_label(
+    draft: dict[str, Any],
+    message: str,
+    *,
+    trusted_pending: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    out = dict(draft)
+    if trusted_pending and trusted_pending.get("label"):
+        if message_has_explicit_label(message):
+            m = re.search(
+                r"(?:label|title)\s+(?:will\s+be|is|:)\s*([^.?\n]+)",
+                message,
+                flags=re.IGNORECASE,
+            )
+            if m:
+                out["label"] = m.group(1).strip(" .")[:255]
+                return out
+        out["label"] = trusted_pending["label"]
+        return out
+    if out.get("label") and not message_has_explicit_label(message):
+        out["label"] = None
+    return out
+
+
+def is_fresh_create_request(text: str) -> bool:
+    """True when the user is starting a new create, not answering a slot."""
+    lower = text.strip().lower()
+    if not lower:
+        return False
+    # Pure category / short slot answers are not a fresh create
+    if _parse_category_reply(lower) and len(lower.split()) <= 6 and not any(
+        h in lower for h in ("add", "create", "schedule", "remind", "reminder", "event")
+    ):
+        return False
+    if is_year_only_date(lower) or message_has_explicit_date(lower) or message_has_explicit_time(lower):
+        # "add reminder on 5 july" is fresh create WITH date — still fresh
+        pass
+    starters = (
+        r"\b(add|create|schedule)\b",
+        r"\b(remind|reminder)\b",
+        r"\bnew\s+(event|reminder|meeting)\b",
+        r"\bcan you add\b",
+        r"\bplease add\b",
+        r"\bi want to add\b",
+        r"\bi need (a |an )?(reminder|event|meeting)\b",
+    )
+    return any(re.search(p, lower) for p in starters)
 
 
 def lock_confirmed_slots(

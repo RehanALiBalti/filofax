@@ -611,6 +611,11 @@
     }
 
     async function chat(message, confirm = false) {
+      const lower = message.toLowerCase();
+      const freshCreate = /\b(add|create|schedule|remind|reminder|new event|new reminder)\b/.test(lower)
+        && !/^(todo|to do|important|appointment)\b/i.test(lower.trim());
+      if (freshCreate) setPending(null);
+
       setBusy(true);
       showTyping("Thinking…");
       try {
