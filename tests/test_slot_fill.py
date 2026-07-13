@@ -47,6 +47,17 @@ def test_unclear_time_returns_none():
     assert apply_slot_reply(pending=draft, message="maybe later", field="time", today=TODAY) is None
 
 
+def test_parse_nine_pm_from_sentence():
+    from backend.slot_fill import enrich_draft_from_message, empty_draft
+
+    msg = "Hello, I want to be here to remind you at 9 p.m."
+    out = enrich_draft_from_message(empty_draft(), msg, today=TODAY)
+    assert out["time"] == "21:00"
+    assert out["label"] == "Reminder"
+    # Date still missing — should ask date next, NOT time again
+    assert next_missing(out) == "date"
+
+
 def test_relative_date_kal():
     empty = {"date": None, "time": None, "category": None, "label": None}
     out = apply_slot_reply(pending=empty, message="kal", field="date", today=TODAY)

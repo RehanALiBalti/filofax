@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import date
 from typing import Any
 
@@ -23,6 +24,7 @@ from backend.slot_fill import (
     apply_slot_reply,
     ask_again,
     empty_draft,
+    enrich_draft_from_message,
     merge_ai_into_draft,
     missing_fields,
     next_missing,
@@ -53,7 +55,12 @@ CANCEL_WORDS = {
 
 
 def _is_greeting(message: str) -> bool:
-    return message.strip().lower() in GREETING_WORDS
+    """True only for short greetings, not 'Hello, remind me at 9pm'."""
+    text = message.strip().lower()
+    if text in GREETING_WORDS:
+        return True
+    bare = re.sub(r"[.!?,]+$", "", text).strip()
+    return bare in GREETING_WORDS
 
 
 def _is_cancel(message: str) -> bool:
@@ -140,16 +147,28 @@ class AssistantService:
             validated.event.get(k) for k in ("date", "time", "label", "category")
         )):
             merged = merge_ai_into_draft(draft, validated.event)
+            merged = enrich_draft_from_message(merged, text)
             return self._finish_or_ask(db, user_id, merged, language, validated.confidence, ai_result)
 
         # Unclear start — begin create flow by asking for date
         if validated.intent in ("unclear", "clarify", "unknown"):
             # If message looks like create intent keywords, start draft
             lower = text.lower()
-            create_hints = ("add", "create", "schedule", "reminder", "event", "meeting", "appointment", "kar do", "add kar")
+            create_hints = (
+                "add",
+                "create",
+                "schedule",
+                "reminder",
+                "remind",
+                "event",
+                "meeting",
+                "appointment",
+                "kar do",
+                "add kar",
+            )
             if any(h in lower for h in create_hints):
-                draft = empty_draft()
-                return self._ask_next(draft, language, confidence=0.7, ai_result=ai_result)
+                draft = enrich_draft_from_message(empty_draft(), text)
+                return self._finish_or_ask(db, user_id, draft, language, 0.7, ai_result)
             return AssistantResponse(
                 ok=True,
                 intent=validated.intent,
@@ -185,7 +204,13 @@ class AssistantService:
         # 1) Deterministic fill for the field we asked
         filled = apply_slot_reply(pending=draft, message=text, field=field, today=date.today())
         if filled is not None:
+            filled = enrich_draft_from_message(filled, text)
             return self._finish_or_ask(db, user_id, filled, language, 0.95, None)
+
+        # Also try enriching whole message (user may answer multiple fields)
+        enriched = enrich_draft_from_message(dict(draft), text)
+        if missing_fields(enriched) != missing_fields(draft):
+            return self._finish_or_ask(db, user_id, enriched, language, 0.9, None)
 
         # 2) Ask AI with strong context — still merge; never drop draft
         context = {
@@ -201,9 +226,9 @@ class AssistantService:
             validated = validate_ai_response(ai_result)
             language = validated.language
             merged = merge_ai_into_draft(draft, validated.event)
+            merged = enrich_draft_from_message(merged, text)
             # If still missing the same field, re-ask clearly
             if field in missing_fields(merged):
-                # Try applying slot reply again on AI-normalized values already done
                 return self._ask_next(
                     merged,
                     language,

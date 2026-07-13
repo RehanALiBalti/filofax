@@ -79,27 +79,36 @@ def _parse_relative_date(text: str, today: date) -> date | None:
 
 
 def _parse_flexible_time(text: str) -> str | None:
-    t = text.strip().lower()
-    # "4 baje", "4:30 baje", "sham 4", "4 pm"
-    t = t.replace("baje", "").replace("bajay", "").replace("o'clock", "").strip()
-    t = re.sub(r"\s+", " ", t)
+    original = text.strip().lower()
+    t = original.replace("p.m.", "pm").replace("a.m.", "am").replace("p.m", "pm").replace("a.m", "am")
+    t = t.replace("baje", " ").replace("bajay", " ").replace("o'clock", " ")
+    t = re.sub(r"\s+", " ", t).strip()
 
-    m = re.search(
-        r"(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?",
-        t,
-        flags=re.IGNORECASE,
-    )
+    # Explicit am/pm: "at 9 pm", "9:30pm", "9 p m"
+    m = re.search(r"(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b", t)
     if m:
         hour = int(m.group(1))
         minute = int(m.group(2) or 0)
-        ampm = (m.group(3) or "").lower().replace(".", "")
-        if "sham" in t or "evening" in t or "night" in t:
-            if hour < 12 and not ampm:
-                hour += 12
-        if ampm.startswith("p") and hour < 12:
+        ampm = m.group(3)
+        if ampm == "pm" and hour < 12:
             hour += 12
-        if ampm.startswith("a") and hour == 12:
+        if ampm == "am" and hour == 12:
             hour = 0
+        if 0 <= hour <= 23 and 0 <= minute <= 59:
+            return f"{hour:02d}:{minute:02d}"
+
+    # 24h clock like 21:00
+    m24 = re.search(r"\b([01]?\d|2[0-3]):([0-5]\d)\b", t)
+    if m24:
+        return f"{int(m24.group(1)):02d}:{m24.group(2)}"
+
+    # "sham 4" / evening without am/pm
+    m2 = re.search(r"(\d{1,2})(?::(\d{2}))?", t)
+    if m2 and any(w in original for w in ("sham", "evening", "night", "baje", "bajay")):
+        hour = int(m2.group(1))
+        minute = int(m2.group(2) or 0)
+        if any(w in original for w in ("sham", "evening", "night")) and hour < 12:
+            hour += 12
         if 0 <= hour <= 23 and 0 <= minute <= 59:
             return f"{hour:02d}:{minute:02d}"
 
@@ -107,6 +116,57 @@ def _parse_flexible_time(text: str) -> str | None:
     if parsed:
         return parsed.strftime("%H:%M")
     return None
+
+
+def enrich_draft_from_message(
+    draft: dict[str, Any],
+    message: str,
+    *,
+    today: date | None = None,
+) -> dict[str, Any]:
+    """Fill any still-missing slots by scanning the full user message."""
+    today = today or date.today()
+    out = dict(draft)
+    text = message.strip()
+    if not text:
+        return out
+
+    if not out.get("time"):
+        value = _parse_flexible_time(text)
+        if value:
+            out["time"] = value
+
+    if not out.get("date"):
+        # Only use relative words / clear dates in longer sentences
+        lower = text.lower()
+        for token in ("today", "aaj", "tomorrow", "kal", "parso", "yesterday"):
+            if re.search(rf"\b{re.escape(token)}\b", lower):
+                value = _parse_relative_date(token, today)
+                if value:
+                    out["date"] = value.isoformat()
+                    break
+        if not out.get("date"):
+            # ISO date in text
+            m = re.search(r"\b(20\d{2}-\d{2}-\d{2})\b", text)
+            if m:
+                out["date"] = m.group(1)
+
+    if not out.get("category"):
+        value = _parse_category_reply(text)
+        if value:
+            out["category"] = value
+
+    if not out.get("label"):
+        # Light label heuristics for reminder phrases
+        lower = text.lower()
+        if "remind" in lower:
+            out["label"] = "Reminder"
+        elif "meeting" in lower:
+            out["label"] = "Meeting"
+        elif "appointment" in lower:
+            out["label"] = "Appointment"
+
+    return out
 
 
 def _parse_category_reply(text: str) -> str | None:
