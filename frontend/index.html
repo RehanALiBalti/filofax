@@ -387,8 +387,8 @@
           <h2>Assistant</h2>
           <div class="panel-actions">
             <button type="button" class="tts-toggle" id="ttsBtn" title="Toggle voice replies">🔊 Voice on</button>
-            <button type="button" class="clear-reminder" id="clearBtn" disabled title="Clear unfinished reminder">
-              Clear reminder
+            <button type="button" class="clear-reminder" id="clearBtn" title="Clear chat and delete all saved reminders">
+              Clear chat
             </button>
           </div>
         </div>
@@ -471,7 +471,8 @@
     let liveInterim = "";
     let useLiveSpeech = false;
     let ttsEnabled = true;
-    let voicesReady = false;
+    let welcomeSpoken = false;
+    let welcomeUnlockBound = false;
 
     const WELCOME_MSG =
       "Hello! I'm Filofax, your event assistant. I'm doing well — how can I help? " +
@@ -490,31 +491,89 @@
       return (
         voices.find((v) => v.lang.toLowerCase() === lang) ||
         voices.find((v) => v.lang.toLowerCase().startsWith(primary)) ||
+        voices.find((v) => /en[-_]?us/i.test(v.lang) && /female|zira|samantha|google/i.test(v.name)) ||
         voices.find((v) => v.lang.toLowerCase().startsWith("en")) ||
         voices[0]
       );
     }
 
     function stopSpeaking() {
-      if (canSpeak) window.speechSynthesis.cancel();
+      if (!canSpeak) return;
+      try {
+        window.speechSynthesis.cancel();
+      } catch (_) { /* ignore */ }
     }
 
-    function speakText(text) {
+    function speakText(text, { isWelcome = false } = {}) {
       if (!ttsEnabled || !canSpeak || !text) return;
       const clean = String(text).replace(/\s+/g, " ").trim();
       if (!clean) return;
-      stopSpeaking();
-      const utter = new SpeechSynthesisUtterance(clean);
-      const voice = pickVoice();
-      if (voice) {
-        utter.voice = voice;
-        utter.lang = voice.lang;
-      } else {
-        utter.lang = navigator.language || "en-US";
+
+      const start = () => {
+        // Chrome bug: synthesis sometimes stays paused
+        try {
+          window.speechSynthesis.resume();
+        } catch (_) { /* ignore */ }
+        stopSpeaking();
+        const utter = new SpeechSynthesisUtterance(clean);
+        const voice = pickVoice();
+        if (voice) {
+          utter.voice = voice;
+          utter.lang = voice.lang;
+        } else {
+          utter.lang = navigator.language || "en-US";
+        }
+        utter.rate = 1;
+        utter.pitch = 1;
+        utter.onstart = () => {
+          if (isWelcome) welcomeSpoken = true;
+        };
+        // Keep Chrome from freezing mid-utterance
+        const keepAlive = setInterval(() => {
+          try {
+            if (window.speechSynthesis.speaking) window.speechSynthesis.resume();
+            else clearInterval(keepAlive);
+          } catch (_) {
+            clearInterval(keepAlive);
+          }
+        }, 5000);
+        utter.onend = () => clearInterval(keepAlive);
+        utter.onerror = () => {
+          clearInterval(keepAlive);
+          if (isWelcome) welcomeSpoken = false;
+        };
+        window.speechSynthesis.speak(utter);
+      };
+
+      if (!loadVoices().length) {
+        const once = () => {
+          window.speechSynthesis.removeEventListener("voiceschanged", once);
+          setTimeout(start, 50);
+        };
+        window.speechSynthesis.addEventListener("voiceschanged", once);
+        setTimeout(start, 600);
+        return;
       }
-      utter.rate = 1;
-      utter.pitch = 1;
-      window.speechSynthesis.speak(utter);
+      setTimeout(start, 50);
+    }
+
+    function tryWelcomeSpeak() {
+      if (welcomeSpoken || !ttsEnabled) return;
+      speakText(WELCOME_MSG, { isWelcome: true });
+    }
+
+    function bindWelcomeUnlock() {
+      if (welcomeUnlockBound) return;
+      welcomeUnlockBound = true;
+      const unlock = () => {
+        if (!welcomeSpoken) tryWelcomeSpeak();
+        window.removeEventListener("pointerdown", unlock);
+        window.removeEventListener("keydown", unlock);
+        window.removeEventListener("touchstart", unlock);
+      };
+      window.addEventListener("pointerdown", unlock);
+      window.addEventListener("keydown", unlock);
+      window.addEventListener("touchstart", unlock);
     }
 
     function syncTtsButton() {
@@ -525,18 +584,20 @@
 
     if (canSpeak) {
       loadVoices();
-      window.speechSynthesis.onvoiceschanged = () => {
-        voicesReady = true;
-        loadVoices();
-      };
+      window.speechSynthesis.onvoiceschanged = () => loadVoices();
     }
 
     if (ttsBtn) {
       ttsBtn.addEventListener("click", () => {
         ttsEnabled = !ttsEnabled;
-        if (!ttsEnabled) stopSpeaking();
+        if (!ttsEnabled) {
+          stopSpeaking();
+        } else if (!welcomeSpoken) {
+          tryWelcomeSpeak();
+        } else {
+          speakText("Voice replies on.");
+        }
         syncTtsButton();
-        if (ttsEnabled) speakText("Voice replies on.");
       });
       syncTtsButton();
     }
@@ -682,7 +743,6 @@
 
     function setPending(event) {
       pendingEvent = event;
-      if (clearBtn) clearBtn.disabled = !event;
     }
 
     function mergePending(prev, next) {
@@ -938,28 +998,31 @@
     });
 
     clearBtn.addEventListener("click", async () => {
-      if (clearBtn.disabled) return;
+      const ok = window.confirm("Clear chat and delete ALL saved reminders?");
+      if (!ok) return;
       if (isRecording) stopRecording({ discard: true });
-      addBubble("Clear reminder", "user");
-      setPending(null);
+      stopSpeaking();
       setBusy(true);
       showTyping("Clearing…");
       try {
-        const res = await fetch(`${API}/api/assistant/chat`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            message: "cancel",
-            user_id: userId,
-            confirm: false,
-          }),
-        });
-        const data = await res.json();
+        const res = await fetch(
+          `${API}/api/events?user_id=${encodeURIComponent(userId)}`,
+          { method: "DELETE" }
+        );
+        const data = await res.json().catch(() => ({}));
         hideTyping();
-        const cleared = data.message || "Reminder cleared.";
-        addBubble(cleared, "bot");
-        speakText(cleared);
+        if (!res.ok) {
+          addBubble(data.detail || "Clear failed.", "bot");
+          return;
+        }
         setPending(null);
+        logEl.innerHTML = "";
+        welcomeSpoken = false;
+        const msg = data.message || "Chat and reminders cleared.";
+        addBubble(msg, "bot");
+        addBubble(WELCOME_MSG, "bot");
+        speakText(`${msg} ${WELCOME_MSG}`, { isWelcome: true });
+        await refreshEvents();
       } catch (err) {
         hideTyping();
         addBubble("Clear failed: " + err.message, "bot");
@@ -993,20 +1056,8 @@
 
     syncComposerButtons();
     addBubble(WELCOME_MSG, "bot");
-    let welcomeSpoken = false;
-    function tryWelcomeSpeak() {
-      if (welcomeSpoken || !ttsEnabled) return;
-      welcomeSpoken = true;
-      speakText(WELCOME_MSG);
-    }
-    setTimeout(tryWelcomeSpeak, 400);
-    const unlockSpeak = () => {
-      tryWelcomeSpeak();
-      window.removeEventListener("pointerdown", unlockSpeak);
-      window.removeEventListener("keydown", unlockSpeak);
-    };
-    window.addEventListener("pointerdown", unlockSpeak, { once: true });
-    window.addEventListener("keydown", unlockSpeak, { once: true });
+    bindWelcomeUnlock();
+    setTimeout(tryWelcomeSpeak, 500);
     checkHealth();
     refreshEvents();
   </script>

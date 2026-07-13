@@ -67,6 +67,15 @@ def delete_event(db: Session, event: Event) -> None:
     db.commit()
 
 
+def delete_all_events(db: Session, user_id: str) -> int:
+    events = list_events(db, user_id, limit=10_000)
+    count = len(events)
+    for event in events:
+        db.delete(event)
+    db.commit()
+    return count
+
+
 def search_events(db: Session, user_id: str, filters: dict[str, Any]) -> list[Event]:
     clauses = [Event.user_id == user_id]
 

@@ -223,6 +223,19 @@ def update_event(
     return EventOut.model_validate(updated)
 
 
+@app.delete("/api/events", status_code=200)
+def delete_all_events(
+    user_id: str = Query(DEFAULT_USER_ID),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Delete all saved events for a user and clear any in-progress draft."""
+    from backend.draft_store import clear_draft
+
+    count = event_service.delete_all_events(db, user_id)
+    clear_draft(user_id)
+    return {"ok": True, "deleted": count, "message": f"Cleared {count} reminder(s)."}
+
+
 @app.delete("/api/events/{event_id}", status_code=204)
 def delete_event(
     event_id: int,
