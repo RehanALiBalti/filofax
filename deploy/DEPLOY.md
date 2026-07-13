@@ -59,7 +59,19 @@ curl -s http://filofax.buzzwaretech.com/api/health
 
 Browser: **http://filofax.buzzwaretech.com/**
 
-### 4. HTTPS (optional)
+### 4. HTTPS (SSL)
+
+```bash
+cd /opt/filofax && sudo -u www-data git pull
+
+sudo CERTBOT_EMAIL=your@email.com \
+  SUBDOMAIN=filofax.buzzwaretech.com \
+  bash /opt/filofax/deploy/setup-ssl-subdomain.sh
+```
+
+Then open: **https://filofax.buzzwaretech.com/**
+
+Manual equivalent:
 
 ```bash
 sudo apt install -y certbot python3-certbot-nginx
