@@ -80,7 +80,7 @@ def test_no_date_guess_when_only_time_and_place():
     assert cleaned["time"] == "21:00"
     enriched = enrich_draft_from_message(empty_draft(), msg, today=TODAY)
     assert enriched["time"] == "21:00"
-    assert enriched["label"] == "Karachi meeting"
+    assert enriched["label"] == "Karachi Meeting"
     assert enriched["notes"] == "Karachi"
     assert enriched["date"] is None
     assert next_missing(enriched) == "date"
@@ -115,6 +115,30 @@ def test_full_order_after_category_asks_label():
     assert locked["category"] == "To Do"
     assert locked["label"] is None
     assert next_missing(locked) == "label"
+
+
+def test_extract_label_card_check_from_sentence():
+    from backend.slot_fill import _extract_label
+
+    assert _extract_label("Can you please enable this event as a card check") == "Card Check"
+    assert _extract_label("label is Dentist visit") == "Dentist Visit"
+    assert _extract_label("call it Team Sync") == "Team Sync"
+    assert _extract_label("card check") == "Card Check"
+
+    draft = {
+        "date": "2026-11-12",
+        "time": "12:00",
+        "category": "Appointment",
+        "label": None,
+    }
+    out = apply_slot_reply(
+        pending=draft,
+        message="Can you please enable this event as a card check",
+        field="label",
+        today=TODAY,
+    )
+    assert out is not None
+    assert out["label"] == "Card Check"
 
 
 def test_relative_date_kal():

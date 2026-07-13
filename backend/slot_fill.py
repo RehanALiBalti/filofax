@@ -382,13 +382,9 @@ def enrich_draft_from_message(
 
     # Only set label when user explicitly says label/title — never invent / never auto Reminder
     if not out.get("label"):
-        m = re.search(
-            r"(?:label|title)\s+(?:will\s+be|is|:)\s*([^.?\n]+)",
-            text,
-            flags=re.IGNORECASE,
-        )
-        if m:
-            out["label"] = m.group(1).strip(" .")[:255]
+        value = _extract_label(text)
+        if value and message_has_explicit_label(text):
+            out["label"] = value
 
     if not out.get("notes"):
         m = re.search(
@@ -435,12 +431,8 @@ def enrich_draft_from_message(
 
     if prior_label:
         if message_has_explicit_label(text):
-            m = re.search(
-                r"(?:label|title)\s+(?:will\s+be|is|:)\s*([^.?\n]+)",
-                text,
-                flags=re.IGNORECASE,
-            )
-            out["label"] = m.group(1).strip(" .")[:255] if m else prior_label
+            parsed = _extract_label(text)
+            out["label"] = parsed or prior_label
         else:
             out["label"] = prior_label
     else:
@@ -475,8 +467,57 @@ def message_has_explicit_label(text: str) -> bool:
     lower = text.strip().lower()
     if re.search(r"(?:label|title)\s+(?:will\s+be|is|:)\s*\S+", lower):
         return True
-    # Short replies while answering the label slot are handled in apply_slot_reply
+    if re.search(r"\bas\s+(?:a|an)\s+\S+", lower):
+        return True
+    if re.search(r"(?:name\s+it|call\s+it|titled|named)\s+\S+", lower):
+        return True
     return False
+
+
+def _clean_label(raw: str) -> str | None:
+    s = raw.strip(" .!?,;:\"'")
+    s = re.sub(r"\s+", " ", s)
+    s = re.sub(r"\s+(please|thanks|thank you|now)\.?$", "", s, flags=re.IGNORECASE)
+    if not s:
+        return None
+    if len(s) > 255:
+        s = s[:255].rstrip()
+    if s.lower() in {"to do", "todo", "appointment", "important", "event", "reminder"}:
+        return None
+    if len(s.split()) <= 6:
+        s = " ".join(w[:1].upper() + w[1:] if w else w for w in s.split())
+    return s
+
+
+def _extract_label(text: str) -> str | None:
+    """Pull a short event title out of a full sentence when possible."""
+    t = text.strip()
+    if not t:
+        return None
+
+    patterns = [
+        r"(?:label|title)\s+(?:will\s+be|is|:)\s*(.+)$",
+        r"(?:name\s+it|call\s+it|titled|named)\s+(.+)$",
+        r"\bas\s+(?:a|an)\s+(.+)$",
+        r"(?:enable|set|save|make)\s+(?:this\s+)?(?:event|reminder)?\s*as\s+(?:a|an)\s+(.+)$",
+        r"(?:label|title)\s+(?:should\s+be|to)\s+(.+)$",
+    ]
+    for pat in patterns:
+        m = re.search(pat, t, flags=re.IGNORECASE)
+        if m:
+            value = _clean_label(m.group(1))
+            if value:
+                return value
+
+    words = t.split()
+    if len(words) <= 6 and not re.match(
+        r"^(can|could|would|please|kindly|i\s+want|i\s+need)\b",
+        t,
+        flags=re.IGNORECASE,
+    ):
+        return _clean_label(t)
+
+    return None
 
 
 def scrub_invented_category(
@@ -508,17 +549,15 @@ def scrub_invented_label(
     out = dict(draft)
     if trusted_pending and trusted_pending.get("label"):
         if message_has_explicit_label(message):
-            m = re.search(
-                r"(?:label|title)\s+(?:will\s+be|is|:)\s*([^.?\n]+)",
-                message,
-                flags=re.IGNORECASE,
-            )
-            if m:
-                out["label"] = m.group(1).strip(" .")[:255]
+            parsed = _extract_label(message)
+            if parsed:
+                out["label"] = parsed
                 return out
         out["label"] = trusted_pending["label"]
         return out
     if out.get("label") and not message_has_explicit_label(message):
+        if _extract_label(message) == out.get("label"):
+            return out
         out["label"] = None
     return out
 
@@ -614,18 +653,14 @@ def apply_slot_reply(
         return updated
 
     if field == "label":
-        # Any non-empty short text becomes the label
-        if len(text) > 255:
-            text = text[:255]
-        # Avoid treating pure category/time as label if those are somehow next
-        if _parse_category_reply(text) and text.lower() in {
-            "to do",
-            "todo",
-            "appointment",
-            "important",
-        }:
-            return None
-        updated["label"] = text
+        value = _extract_label(text)
+        if not value:
+            # Last resort: use full text only if it's reasonably short
+            if len(text.split()) <= 8:
+                value = _clean_label(text)
+            if not value:
+                return None
+        updated["label"] = value
         return updated
 
     return None
