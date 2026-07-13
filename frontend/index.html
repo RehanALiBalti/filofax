@@ -119,6 +119,44 @@
       background: #fff;
       border: 1px solid var(--line);
     }
+    .bubble.bot.has-play {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.55rem;
+      padding-right: 0.55rem;
+    }
+    .bubble-text {
+      flex: 1;
+      min-width: 0;
+    }
+    .bubble-play {
+      flex-shrink: 0;
+      width: 2rem;
+      height: 2rem;
+      border: 0;
+      border-radius: 50%;
+      background: var(--accent-soft);
+      color: var(--accent);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.7rem;
+      line-height: 1;
+      margin-top: 0.1rem;
+      transition: background 0.15s ease, transform 0.12s ease;
+    }
+    .bubble-play:hover { background: #c5e6d9; }
+    .bubble-play:active { transform: scale(0.92); }
+    .bubble-play.playing {
+      background: var(--accent);
+      color: #fff;
+      animation: playPulse 1s ease-in-out infinite;
+    }
+    @keyframes playPulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
     .bubble.meta {
       font-size: 0.8rem;
       color: var(--muted);
@@ -501,69 +539,114 @@
       );
     }
 
+    let speakTimer = null;
+    let keepAliveTimer = null;
+    let activePlayBtn = null;
+
     function stopSpeaking() {
       if (!canSpeak) return;
+      if (speakTimer) {
+        clearTimeout(speakTimer);
+        speakTimer = null;
+      }
+      if (keepAliveTimer) {
+        clearInterval(keepAliveTimer);
+        keepAliveTimer = null;
+      }
+      if (activePlayBtn) {
+        activePlayBtn.classList.remove("playing");
+        activePlayBtn = null;
+      }
       try {
         window.speechSynthesis.cancel();
       } catch (_) { /* ignore */ }
     }
 
-    function speakText(text, { isWelcome = false } = {}) {
-      if (!ttsEnabled || !canSpeak || !text) return;
+    function speakText(text, { isWelcome = false, force = false, playBtn = null } = {}) {
+      if ((!ttsEnabled && !force) || !canSpeak || !text) return;
       const clean = String(text).replace(/\s+/g, " ").trim();
       if (!clean) return;
 
       const start = () => {
-        // Chrome bug: synthesis sometimes stays paused
-        try {
-          window.speechSynthesis.resume();
-        } catch (_) { /* ignore */ }
         stopSpeaking();
-        const utter = new SpeechSynthesisUtterance(clean);
-        const voice = pickVoice();
-        if (voice) {
-          utter.voice = voice;
-          utter.lang = voice.lang;
-        } else {
-          utter.lang = navigator.language || "en-US";
-        }
-        utter.rate = 1;
-        utter.pitch = 1;
-        utter.onstart = () => {
-          if (isWelcome) welcomeSpoken = true;
-        };
-        // Keep Chrome from freezing mid-utterance
-        const keepAlive = setInterval(() => {
+        // Chrome: cancel() then immediate speak often fails — small delay
+        speakTimer = setTimeout(() => {
           try {
-            if (window.speechSynthesis.speaking) window.speechSynthesis.resume();
-            else clearInterval(keepAlive);
-          } catch (_) {
-            clearInterval(keepAlive);
+            window.speechSynthesis.resume();
+          } catch (_) { /* ignore */ }
+
+          const utter = new SpeechSynthesisUtterance(clean);
+          const voice = pickVoice();
+          if (voice) {
+            utter.voice = voice;
+            utter.lang = voice.lang;
+          } else {
+            utter.lang = navigator.language || "en-US";
           }
-        }, 5000);
-        utter.onend = () => clearInterval(keepAlive);
-        utter.onerror = () => {
-          clearInterval(keepAlive);
-          if (isWelcome) welcomeSpoken = false;
-        };
-        window.speechSynthesis.speak(utter);
+          utter.rate = 1;
+          utter.pitch = 1;
+          utter.volume = 1;
+
+          if (playBtn) {
+            activePlayBtn = playBtn;
+            playBtn.classList.add("playing");
+          }
+
+          utter.onstart = () => {
+            if (isWelcome) welcomeSpoken = true;
+          };
+
+          // Chrome long-utterance freeze workaround
+          keepAliveTimer = setInterval(() => {
+            try {
+              if (!window.speechSynthesis.speaking) {
+                clearInterval(keepAliveTimer);
+                keepAliveTimer = null;
+                return;
+              }
+              window.speechSynthesis.resume();
+            } catch (_) {
+              clearInterval(keepAliveTimer);
+              keepAliveTimer = null;
+            }
+          }, 8000);
+
+          const done = () => {
+            if (keepAliveTimer) {
+              clearInterval(keepAliveTimer);
+              keepAliveTimer = null;
+            }
+            if (playBtn) playBtn.classList.remove("playing");
+            if (activePlayBtn === playBtn) activePlayBtn = null;
+          };
+          utter.onend = done;
+          utter.onerror = () => {
+            done();
+            if (isWelcome) welcomeSpoken = false;
+          };
+
+          window.speechSynthesis.speak(utter);
+        }, 60);
       };
 
       if (!loadVoices().length) {
         const once = () => {
           window.speechSynthesis.removeEventListener("voiceschanged", once);
-          setTimeout(start, 50);
+          start();
         };
         window.speechSynthesis.addEventListener("voiceschanged", once);
-        setTimeout(start, 600);
+        setTimeout(start, 500);
         return;
       }
-      setTimeout(start, 50);
+      start();
     }
+
+    let welcomeBubbleEl = null;
 
     function tryWelcomeSpeak() {
       if (welcomeSpoken || !ttsEnabled) return;
-      speakText(WELCOME_MSG, { isWelcome: true });
+      const btn = welcomeBubbleEl?.querySelector(".bubble-play") || null;
+      speakText(WELCOME_MSG, { isWelcome: true, playBtn: btn });
     }
 
     function bindWelcomeUnlock() {
@@ -725,7 +808,29 @@
     function addBubble(text, who, extraClass = "") {
       const div = document.createElement("div");
       div.className = `bubble ${who}${extraClass ? " " + extraClass : ""}`;
-      div.textContent = text;
+
+      if (who === "bot" && !extraClass.includes("typing") && canSpeak) {
+        div.classList.add("has-play");
+        const body = document.createElement("div");
+        body.className = "bubble-text";
+        body.textContent = text;
+        const play = document.createElement("button");
+        play.type = "button";
+        play.className = "bubble-play";
+        play.title = "Play this reply";
+        play.setAttribute("aria-label", "Play reply");
+        play.textContent = "▶";
+        play.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          speakText(text, { force: true, playBtn: play });
+        });
+        div.appendChild(body);
+        div.appendChild(play);
+      } else {
+        div.textContent = text;
+      }
+
       logEl.appendChild(div);
       logEl.scrollTop = logEl.scrollHeight;
       return div;
@@ -766,8 +871,9 @@
 
     function applyAssistantResult(data) {
       const msg = data.message || JSON.stringify(data);
-      addBubble(msg, "bot");
-      speakText(msg);
+      const bubble = addBubble(msg, "bot");
+      const playBtn = bubble.querySelector(".bubble-play");
+      speakText(msg, { playBtn });
       if (data.event) {
         setPending(null);
         return refreshEvents();
@@ -777,8 +883,10 @@
           const list = data.events.map((e) =>
             `• ${e.label} — ${e.event_date}${e.event_time ? " " + String(e.event_time).slice(0,5) : ""} (${e.category})`
           ).join("\n");
-          addBubble(list, "bot");
-          speakText(`Found ${data.events.length} events.`);
+          const listBubble = addBubble(list, "bot");
+          speakText(`Found ${data.events.length} events.`, {
+            playBtn: listBubble.querySelector(".bubble-play"),
+          });
         }
       } else if (data.intent === "cancel_event") {
         setPending(null);
@@ -1059,7 +1167,7 @@
     }
 
     syncComposerButtons();
-    addBubble(WELCOME_MSG, "bot");
+    welcomeBubbleEl = addBubble(WELCOME_MSG, "bot");
     bindWelcomeUnlock();
     setTimeout(tryWelcomeSpeak, 500);
     checkHealth();
