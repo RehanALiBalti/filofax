@@ -474,9 +474,13 @@
     let welcomeSpoken = false;
     let welcomeUnlockBound = false;
 
-    const WELCOME_MSG =
-      "Hello! I'm Filofax, your event assistant. I'm doing well — how can I help? " +
-      "Say add a reminder, or tell me a date, time, category, and label.";
+    const WELCOME_VARIANTS = [
+      "Hey! I'm Filofax — doing great over here. Want to add a reminder?",
+      "Hi! Hope you're well. I can help you set a reminder whenever you're ready.",
+      "Hello! I'm fine, thanks. Shall we create a reminder together?",
+      "Hey there! Nice to see you. Want me to add a reminder for you?",
+    ];
+    const WELCOME_MSG = WELCOME_VARIANTS[Math.floor(Math.random() * WELCOME_VARIANTS.length)];
 
     function loadVoices() {
       if (!canSpeak) return [];

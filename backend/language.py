@@ -245,7 +245,9 @@ def confirm_message(summary: str, language: LanguageInfo) -> str:
 
 
 def created_message(label: str, language: LanguageInfo) -> str:
-    return _template(_CREATED_TEMPLATES, language, label=label)
+    from backend.chat_style import created_message as _styled
+
+    return _styled(label, language)
 
 
 def search_message(count: int, language: LanguageInfo) -> str:
@@ -261,11 +263,41 @@ def help_message(language: LanguageInfo) -> str:
 
 
 def greeting_message(language: LanguageInfo) -> str:
-    return _template(_GREETING_TEMPLATES, language)
+    from backend.chat_style import greeting_message as _styled
+
+    return _styled(language)
 
 
 def ask_next_field_message(field: str, language: LanguageInfo) -> str:
-    table = _ASK_NEXT.get(field) or _ASK_NEXT["date"]
-    code = (language.code or "en").strip()
-    primary = code.split("-")[0]
-    return table.get(code) or table.get(primary) or table.get("en") or f"Please provide {field}."
+    from backend.chat_style import ask_next_field_message as _styled
+
+    return _styled(field, language)
+
+
+def progress_ask_message(
+    *,
+    filled_field: str | None,
+    filled_value: Any,
+    next_field: str | None,
+    language: LanguageInfo,
+) -> str:
+    from backend.chat_style import progress_ask_message as _styled
+
+    return _styled(
+        filled_field=filled_field,
+        filled_value=filled_value,
+        next_field=next_field,
+        language=language,
+    )
+
+
+def smalltalk_message(language: LanguageInfo) -> str:
+    from backend.chat_style import smalltalk_message as _styled
+
+    return _styled(language)
+
+
+def retry_prefix(language: LanguageInfo) -> str:
+    from backend.chat_style import retry_prefix as _styled
+
+    return _styled(language)

@@ -17,7 +17,10 @@ from backend.language import (
     greeting_message,
     help_message,
     normalize_language,
+    progress_ask_message,
+    retry_prefix,
     search_message,
+    smalltalk_message,
     unclear_message,
 )
 from backend.models import AssistantResponse, EventOut, LanguageInfo
@@ -149,6 +152,59 @@ def _is_greeting(message: str) -> bool:
     return False
 
 
+def _is_smalltalk(message: str) -> bool:
+    """Friendly check-ins like 'I'm fine' — not slot answers."""
+    text = _normalize_greeting_text(message)
+    if not text or _is_greeting(text):
+        return False
+    if message_has_explicit_date(text) or message_has_explicit_time(text):
+        return False
+    if _parse_category_reply_safe(text):
+        # "important" alone is category, not smalltalk
+        if text in {"important", "appointment", "todo", "to do"}:
+            return False
+    phrases = {
+        "i am fine",
+        "i'm fine",
+        "im fine",
+        "i am good",
+        "i'm good",
+        "im good",
+        "doing fine",
+        "doing well",
+        "all good",
+        "all fine",
+        "yes i am fine",
+        "yes i'm fine",
+        "fine",
+        "great",
+        "good",
+        "not bad",
+        "same here",
+        "and you",
+        "how about you",
+        "also fine",
+        "me too",
+        "okay",
+        "ok",
+        "alright",
+    }
+    if text in phrases:
+        return True
+    if re.match(
+        r"^(yes[, ]+)?(i('m| am) )?(doing )?(fine|good|great|okay|ok|well)\b",
+        text,
+    ):
+        return True
+    return False
+
+
+def _parse_category_reply_safe(text: str):
+    from backend.slot_fill import _parse_category_reply
+
+    return _parse_category_reply(text)
+
+
 CANCEL_WORDS = {
     "cancel",
     "clear",
@@ -219,7 +275,6 @@ class AssistantService:
         if _is_greeting(text):
             greet = greeting_message(lang)
             if draft and missing_fields(draft):
-                # Keep draft; answer politely then re-ask the same field
                 nxt = next_missing(draft)
                 ask = ask_next_field_message(nxt, lang) if nxt else ""
                 save_draft(user_id, draft)
@@ -239,6 +294,31 @@ class AssistantService:
                 language=lang,
                 confidence=1.0,
                 message=greet,
+                requires_clarification=False,
+            )
+
+        if _is_smalltalk(text):
+            chatty = smalltalk_message(lang)
+            if draft and missing_fields(draft):
+                nxt = next_missing(draft)
+                ask = ask_next_field_message(nxt, lang) if nxt else ""
+                save_draft(user_id, draft)
+                return AssistantResponse(
+                    ok=True,
+                    intent="create_event",
+                    language=lang,
+                    confidence=1.0,
+                    message=f"{chatty} {ask}".strip(),
+                    missing_fields=missing_fields(draft),
+                    requires_clarification=True,
+                    pending_event=draft,
+                )
+            return AssistantResponse(
+                ok=True,
+                intent="greeting",
+                language=lang,
+                confidence=1.0,
+                message=chatty,
                 requires_clarification=False,
             )
 
@@ -361,7 +441,9 @@ class AssistantService:
             filled = enrich_draft_from_message(filled, text)
             filled = lock_confirmed_slots(draft, filled, allow_update={field})
             filled = self._scrub_unasked_inventions(filled, text, draft, field)
-            return self._finish_or_ask(db, user_id, filled, language, 0.95, None)
+            return self._finish_or_ask(
+                db, user_id, filled, language, 0.95, None, filled_field=field
+            )
 
         # User may answer a different missing field (e.g. time while date was lost client-side)
         for other in missing_fields(draft):
@@ -372,14 +454,24 @@ class AssistantService:
                 alt = enrich_draft_from_message(alt, text)
                 alt = lock_confirmed_slots(draft, alt, allow_update={other})
                 alt = self._scrub_unasked_inventions(alt, text, draft, other)
-                return self._finish_or_ask(db, user_id, alt, language, 0.95, None)
+                return self._finish_or_ask(
+                    db, user_id, alt, language, 0.95, None, filled_field=other
+                )
 
         # Also try enriching whole message (user may answer multiple fields)
         enriched = enrich_draft_from_message(dict(draft), text)
         enriched = lock_confirmed_slots(draft, enriched)
         enriched = self._scrub_unasked_inventions(enriched, text, draft, field)
         if missing_fields(enriched) != missing_fields(draft):
-            return self._finish_or_ask(db, user_id, enriched, language, 0.9, None)
+            # Detect which field(s) newly filled
+            newly = None
+            for key in ("date", "time", "category", "label"):
+                if not draft.get(key) and enriched.get(key):
+                    newly = key
+                    break
+            return self._finish_or_ask(
+                db, user_id, enriched, language, 0.9, None, filled_field=newly
+            )
 
         # Invalid calendar date like August 50
         if field == "date" and re.search(
@@ -427,7 +519,7 @@ class AssistantService:
                     user_id=user_id,
                 )
             return self._finish_or_ask(
-                db, user_id, merged, language, validated.confidence, ai_result
+                db, user_id, merged, language, validated.confidence, ai_result, filled_field=field
             )
         except AIServiceError:
             return self._ask_next(draft, language, confidence=0.5, retry=True, user_id=user_id)
@@ -459,11 +551,19 @@ class AssistantService:
         language: LanguageInfo,
         confidence: float,
         ai_result: Any,
+        *,
+        filled_field: str | None = None,
     ) -> AssistantResponse:
         miss = missing_fields(event)
         if miss:
             return self._ask_next(
-                event, language, confidence=confidence, ai_result=ai_result, user_id=user_id
+                event,
+                language,
+                confidence=confidence,
+                ai_result=ai_result,
+                user_id=user_id,
+                filled_field=filled_field,
+                filled_value=event.get(filled_field) if filled_field else None,
             )
         return self._commit_pending(
             db,
@@ -483,19 +583,22 @@ class AssistantService:
         ai_result: Any = None,
         retry: bool = False,
         user_id: str | None = None,
+        filled_field: str | None = None,
+        filled_value: Any = None,
     ) -> AssistantResponse:
         info = ask_again(event=event, language=language, confidence=confidence)
-        msg = info["message"]
-        if retry and info["next_field"]:
-            # Emphasize we still need a clear value
-            again = {
-                "en": "Please answer clearly. ",
-                "ur-Latn": "Please clear bata dein. ",
-                "ur": "براہ کرم واضح بتائیں۔ ",
-            }
-            code = language.code or "en"
-            prefix = again.get(code) or again.get(code.split("-")[0]) or again["en"]
-            msg = prefix + msg
+        nxt = info["next_field"]
+        if retry and nxt:
+            msg = retry_prefix(language) + ask_next_field_message(nxt, language)
+        elif filled_field and filled_value not in (None, ""):
+            msg = progress_ask_message(
+                filled_field=filled_field,
+                filled_value=filled_value,
+                next_field=nxt,
+                language=language,
+            )
+        else:
+            msg = info["message"]
 
         if user_id:
             save_draft(user_id, event)
