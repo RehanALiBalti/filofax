@@ -97,6 +97,41 @@ _HELP_TEMPLATES: dict[str, str] = {
     "und": "I can create or search events. Start with the date.",
 }
 
+_GREETING_TEMPLATES: dict[str, str] = {
+    "en": (
+        "Hello! I'm doing well, thank you. "
+        "I can help you add or find reminders — say \"add a reminder\" when you're ready."
+    ),
+    "ur-Latn": (
+        "Assalamu alaikum! Main theek hoon, shukriya. "
+        "Reminder add ya search karna ho to bata dein — jaise \"add a reminder\"."
+    ),
+    "ur": (
+        "السلام علیکم! میں ٹھیک ہوں، شکریہ۔ "
+        "یاد دہانی شامل یا تلاش کرنے کے لیے بتائیں — جیسے \"add a reminder\"۔"
+    ),
+    "hi-Latn": (
+        "Namaste! Main theek hoon. "
+        "Reminder add ya search ke liye bataiye — jaise \"add a reminder\"."
+    ),
+    "hi": (
+        "नमस्ते! मैं ठीक हूँ। "
+        "रिमाइंडर जोड़ने या खोजने के लिए बताइए — जैसे \"add a reminder\"।"
+    ),
+    "es": "¡Hola! Estoy bien, gracias. Puedo ayudarte a crear o buscar recordatorios — di \"add a reminder\".",
+    "fr": "Bonjour ! Je vais bien, merci. Dites \"add a reminder\" pour commencer.",
+    "ar": "مرحباً! بخير، شكراً. قل add a reminder للبدء.",
+    "zh": "你好！我很好，谢谢。想添加提醒可以说 add a reminder。",
+    "mixed": (
+        "Hello! I'm doing well, thank you. "
+        "I can help you add or find reminders — say \"add a reminder\" when you're ready."
+    ),
+    "und": (
+        "Hello! I'm doing well, thank you. "
+        "I can help you add or find reminders — say \"add a reminder\" when you're ready."
+    ),
+}
+
 _ASK_NEXT: dict[str, dict[str, str]] = {
     "date": {
         "en": "What date should I set for the event?",
@@ -223,6 +258,10 @@ def unclear_message(language: LanguageInfo) -> str:
 
 def help_message(language: LanguageInfo) -> str:
     return _template(_HELP_TEMPLATES, language)
+
+
+def greeting_message(language: LanguageInfo) -> str:
+    return _template(_GREETING_TEMPLATES, language)
 
 
 def ask_next_field_message(field: str, language: LanguageInfo) -> str:

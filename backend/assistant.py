@@ -14,6 +14,7 @@ from backend.language import (
     ask_next_field_message,
     created_message,
     default_language,
+    greeting_message,
     help_message,
     normalize_language,
     search_message,
@@ -31,6 +32,8 @@ from backend.slot_fill import (
     is_year_only_date,
     lock_confirmed_slots,
     merge_ai_into_draft,
+    message_has_explicit_date,
+    message_has_explicit_time,
     missing_fields,
     next_missing,
     scrub_invented_category,
@@ -45,6 +48,8 @@ GREETING_WORDS = {
     "hi",
     "hello",
     "hey",
+    "hiya",
+    "yo",
     "salam",
     "salaam",
     "assalam",
@@ -54,7 +59,95 @@ GREETING_WORDS = {
     "aoa",
     "hola",
     "bonjour",
+    "namaste",
+    "good morning",
+    "good afternoon",
+    "good evening",
+    "good night",
 }
+
+GREETING_PHRASES = GREETING_WORDS | {
+    "how are you",
+    "how are you doing",
+    "how are u",
+    "how r you",
+    "how r u",
+    "how's it going",
+    "hows it going",
+    "what's up",
+    "whats up",
+    "what up",
+    "sup",
+    "hi how are you",
+    "hello how are you",
+    "hey how are you",
+    "hi how are u",
+    "hello how are u",
+    "hello how are you doing",
+    "hi there",
+    "hello there",
+    "hey there",
+    "kaise ho",
+    "kesi ho",
+    "kya haal hai",
+    "kiya haal hai",
+    "kaisa hai",
+}
+
+
+def _normalize_greeting_text(message: str) -> str:
+    text = message.strip().lower()
+    text = text.replace("’", "'")
+    text = re.sub(r"[.!?,;:]+", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def _is_greeting(message: str) -> bool:
+    """True for hellos / how-are-you — not 'Hello, add a reminder'."""
+    text = _normalize_greeting_text(message)
+    if not text:
+        return False
+    if text in GREETING_PHRASES:
+        return True
+
+    # Must not be a create / schedule request
+    create_noise = (
+        "add",
+        "create",
+        "schedule",
+        "remind",
+        "reminder",
+        "event",
+        "meeting",
+        "appointment",
+        "todo",
+        "to do",
+        "important",
+        "search",
+        "find",
+        "cancel",
+        "clear",
+    )
+    if any(re.search(rf"\b{re.escape(w)}\b", text) for w in create_noise):
+        return False
+    if message_has_explicit_date(text) or message_has_explicit_time(text):
+        return False
+
+    words = text.split()
+    if len(words) > 10:
+        return False
+
+    if words[0] in GREETING_WORDS or text.startswith(
+        ("how are", "how's", "hows ", "whats up", "what's up", "good morning", "good afternoon", "good evening")
+    ):
+        return True
+
+    # "hello, how are you" already normalized without commas
+    if re.match(r"^(hi|hello|hey)\b.*\bhow are (you|u)\b", text):
+        return True
+    return False
+
 
 CANCEL_WORDS = {
     "cancel",
@@ -65,15 +158,6 @@ CANCEL_WORDS = {
     "mat karo",
     "stop",
 }
-
-
-def _is_greeting(message: str) -> bool:
-    """True only for short greetings, not 'Hello, remind me at 9pm'."""
-    text = message.strip().lower()
-    if text in GREETING_WORDS:
-        return True
-    bare = re.sub(r"[.!?,]+$", "", text).strip()
-    return bare in GREETING_WORDS
 
 
 def _is_cancel(message: str) -> bool:
@@ -132,14 +216,30 @@ class AssistantService:
             pending_event = merge_client_pending(user_id, pending_event)
             draft = merge_ai_into_draft(pending_event, None) if pending_event else None
 
-        if _is_greeting(text) and not draft:
+        if _is_greeting(text):
+            greet = greeting_message(lang)
+            if draft and missing_fields(draft):
+                # Keep draft; answer politely then re-ask the same field
+                nxt = next_missing(draft)
+                ask = ask_next_field_message(nxt, lang) if nxt else ""
+                save_draft(user_id, draft)
+                return AssistantResponse(
+                    ok=True,
+                    intent="create_event",
+                    language=lang,
+                    confidence=1.0,
+                    message=f"{greet} {ask}".strip(),
+                    missing_fields=missing_fields(draft),
+                    requires_clarification=True,
+                    pending_event=draft,
+                )
             return AssistantResponse(
                 ok=True,
-                intent="clarify",
+                intent="greeting",
                 language=lang,
                 confidence=1.0,
-                message=help_message(lang),
-                requires_clarification=True,
+                message=greet,
+                requires_clarification=False,
             )
 
         # --- Active create draft: fill next missing slot, keep asking until clear ---

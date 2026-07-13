@@ -345,6 +345,27 @@
       opacity: 0.4;
       cursor: not-allowed;
     }
+    .panel-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    button.tts-toggle {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 0.4rem 0.75rem;
+      font: inherit;
+      font-size: 0.8rem;
+      font-weight: 600;
+      background: var(--accent-soft);
+      color: var(--accent);
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    button.tts-toggle.off {
+      background: #eee;
+      color: var(--muted);
+    }
     .actions {
       display: flex;
       gap: 0.5rem;
@@ -364,9 +385,12 @@
       <section class="panel">
         <div class="panel-head">
           <h2>Assistant</h2>
-          <button type="button" class="clear-reminder" id="clearBtn" disabled title="Clear unfinished reminder">
-            Clear reminder
-          </button>
+          <div class="panel-actions">
+            <button type="button" class="tts-toggle" id="ttsBtn" title="Toggle voice replies">🔊 Voice on</button>
+            <button type="button" class="clear-reminder" id="clearBtn" disabled title="Clear unfinished reminder">
+              Clear reminder
+            </button>
+          </div>
         </div>
         <div id="log"></div>
         <form id="chatForm" class="composer" autocomplete="off">
@@ -428,10 +452,12 @@
     const stopRecBtn = document.getElementById("stopRecBtn");
     const cancelRecBtn = document.getElementById("cancelRecBtn");
     const clearBtn = document.getElementById("clearBtn");
+    const ttsBtn = document.getElementById("ttsBtn");
     const healthEl = document.getElementById("health");
     const dot = document.getElementById("dot");
 
     const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const canSpeak = !!window.speechSynthesis;
 
     let mediaRecorder = null;
     let mediaStream = null;
@@ -444,6 +470,76 @@
     let liveFinal = "";
     let liveInterim = "";
     let useLiveSpeech = false;
+    let ttsEnabled = true;
+    let voicesReady = false;
+
+    const WELCOME_MSG =
+      "Hello! I'm Filofax, your event assistant. I'm doing well — how can I help? " +
+      "Say add a reminder, or tell me a date, time, category, and label.";
+
+    function loadVoices() {
+      if (!canSpeak) return [];
+      return window.speechSynthesis.getVoices() || [];
+    }
+
+    function pickVoice() {
+      const voices = loadVoices();
+      if (!voices.length) return null;
+      const lang = (navigator.language || "en-US").toLowerCase();
+      const primary = lang.split("-")[0];
+      return (
+        voices.find((v) => v.lang.toLowerCase() === lang) ||
+        voices.find((v) => v.lang.toLowerCase().startsWith(primary)) ||
+        voices.find((v) => v.lang.toLowerCase().startsWith("en")) ||
+        voices[0]
+      );
+    }
+
+    function stopSpeaking() {
+      if (canSpeak) window.speechSynthesis.cancel();
+    }
+
+    function speakText(text) {
+      if (!ttsEnabled || !canSpeak || !text) return;
+      const clean = String(text).replace(/\s+/g, " ").trim();
+      if (!clean) return;
+      stopSpeaking();
+      const utter = new SpeechSynthesisUtterance(clean);
+      const voice = pickVoice();
+      if (voice) {
+        utter.voice = voice;
+        utter.lang = voice.lang;
+      } else {
+        utter.lang = navigator.language || "en-US";
+      }
+      utter.rate = 1;
+      utter.pitch = 1;
+      window.speechSynthesis.speak(utter);
+    }
+
+    function syncTtsButton() {
+      if (!ttsBtn) return;
+      ttsBtn.textContent = ttsEnabled ? "🔊 Voice on" : "🔇 Voice off";
+      ttsBtn.classList.toggle("off", !ttsEnabled);
+    }
+
+    if (canSpeak) {
+      loadVoices();
+      window.speechSynthesis.onvoiceschanged = () => {
+        voicesReady = true;
+        loadVoices();
+      };
+    }
+
+    if (ttsBtn) {
+      ttsBtn.addEventListener("click", () => {
+        ttsEnabled = !ttsEnabled;
+        if (!ttsEnabled) stopSpeaking();
+        syncTtsButton();
+        if (ttsEnabled) speakText("Voice replies on.");
+      });
+      syncTtsButton();
+    }
 
     function syncComposerButtons() {
       const hasText = input.value.trim().length > 0;
@@ -605,16 +701,20 @@
     }
 
     function applyAssistantResult(data) {
-      addBubble(data.message || JSON.stringify(data), "bot");
+      const msg = data.message || JSON.stringify(data);
+      addBubble(msg, "bot");
+      speakText(msg);
       if (data.event) {
         setPending(null);
         return refreshEvents();
       }
       if (data.intent === "search_events") {
         if (data.events?.length) {
-          addBubble(data.events.map((e) =>
+          const list = data.events.map((e) =>
             `• ${e.label} — ${e.event_date}${e.event_time ? " " + String(e.event_time).slice(0,5) : ""} (${e.category})`
-          ).join("\n"), "bot");
+          ).join("\n");
+          addBubble(list, "bot");
+          speakText(`Found ${data.events.length} events.`);
         }
       } else if (data.intent === "cancel_event") {
         setPending(null);
@@ -741,6 +841,7 @@
     }
 
     async function startRecording() {
+      stopSpeaking();
       discardRecording = false;
       liveFinal = "";
       liveInterim = "";
@@ -855,7 +956,9 @@
         });
         const data = await res.json();
         hideTyping();
-        addBubble(data.message || "Reminder cleared.", "bot");
+        const cleared = data.message || "Reminder cleared.";
+        addBubble(cleared, "bot");
+        speakText(cleared);
         setPending(null);
       } catch (err) {
         hideTyping();
@@ -889,7 +992,21 @@
     }
 
     syncComposerButtons();
-    addBubble("Mic dabao → bolte hi text live type hoga → send par turant message. date → time → category → label.", "bot");
+    addBubble(WELCOME_MSG, "bot");
+    let welcomeSpoken = false;
+    function tryWelcomeSpeak() {
+      if (welcomeSpoken || !ttsEnabled) return;
+      welcomeSpoken = true;
+      speakText(WELCOME_MSG);
+    }
+    setTimeout(tryWelcomeSpeak, 400);
+    const unlockSpeak = () => {
+      tryWelcomeSpeak();
+      window.removeEventListener("pointerdown", unlockSpeak);
+      window.removeEventListener("keydown", unlockSpeak);
+    };
+    window.addEventListener("pointerdown", unlockSpeak, { once: true });
+    window.addEventListener("keydown", unlockSpeak, { once: true });
     checkHealth();
     refreshEvents();
   </script>
