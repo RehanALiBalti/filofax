@@ -13,7 +13,16 @@ from backend.config import ALLOWED_CATEGORIES
 from backend.database import Base
 
 Category = Literal["To Do", "Appointment", "Important"]
-Intent = Literal["create_event", "search_events", "clarify", "unclear", "unknown", "cancel_event", "confirm_event"]
+Intent = Literal[
+    "create_event",
+    "search_events",
+    "clarify",
+    "unclear",
+    "unknown",
+    "cancel_event",
+    "confirm_event",
+    "greeting",
+]
 
 
 class Event(Base):
