@@ -209,10 +209,16 @@
     .rec-bar {
       flex: 1;
       display: flex;
-      align-items: center;
-      gap: 0.65rem;
+      flex-direction: column;
+      justify-content: center;
+      gap: 0.2rem;
       min-width: 0;
       padding: 0 0.25rem;
+    }
+    .rec-meta {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
     }
     .rec-dot {
       width: 0.7rem;
@@ -229,45 +235,26 @@
     .rec-timer {
       font-variant-numeric: tabular-nums;
       font-weight: 600;
-      font-size: 0.95rem;
-      color: var(--ink);
+      font-size: 0.85rem;
+      color: var(--muted);
       min-width: 2.5rem;
     }
-    .rec-wave {
-      flex: 1;
-      height: 1.75rem;
-      display: flex;
-      align-items: center;
-      gap: 3px;
-      min-width: 0;
-      overflow: hidden;
+    .rec-live {
+      font-size: 0.92rem;
+      line-height: 1.35;
+      color: var(--ink);
+      max-height: 2.7rem;
+      overflow-y: auto;
+      word-break: break-word;
+      min-height: 1.2rem;
     }
-    .rec-wave span {
-      width: 3px;
-      border-radius: 2px;
-      background: #25d366;
-      animation: wave 0.9s ease-in-out infinite;
-    }
-    .rec-wave span:nth-child(1) { height: 8px; animation-delay: 0s; }
-    .rec-wave span:nth-child(2) { height: 16px; animation-delay: 0.1s; }
-    .rec-wave span:nth-child(3) { height: 11px; animation-delay: 0.2s; }
-    .rec-wave span:nth-child(4) { height: 20px; animation-delay: 0.15s; }
-    .rec-wave span:nth-child(5) { height: 9px; animation-delay: 0.25s; }
-    .rec-wave span:nth-child(6) { height: 15px; animation-delay: 0.05s; }
-    .rec-wave span:nth-child(7) { height: 18px; animation-delay: 0.18s; }
-    .rec-wave span:nth-child(8) { height: 10px; animation-delay: 0.3s; }
-    @keyframes wave {
-      0%, 100% { transform: scaleY(0.55); opacity: 0.55; }
-      50% { transform: scaleY(1); opacity: 1; }
-    }
-    .rec-hint {
-      font-size: 0.75rem;
+    .rec-live .interim { color: var(--muted); }
+    .rec-live:empty::before {
+      content: "Listening… speak now";
       color: var(--muted);
-      white-space: nowrap;
+      font-style: italic;
     }
-    @media (max-width: 520px) {
-      .rec-hint { display: none; }
-    }
+    .rec-live.has-text:empty::before { content: none; }
     .bubble.voice {
       display: flex;
       align-items: center;
@@ -333,7 +320,7 @@
   <div class="shell">
     <header>
       <h1>Filofax</h1>
-      <p>Text ya voice note se events create/search karein. Voice server pe local Whisper se process hoti hai.</p>
+      <p>Bolte hi live transcript — stop dabate hi message chala jata hai (Chrome/Edge best).</p>
       <div class="status"><span class="dot" id="dot"></span><span id="health">Checking AI runtime…</span></div>
     </header>
 
@@ -361,15 +348,13 @@
               <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
             </button>
             <div class="rec-bar">
-              <span class="rec-dot" aria-hidden="true"></span>
-              <span class="rec-timer" id="recTimer">0:00</span>
-              <div class="rec-wave" aria-hidden="true">
-                <span></span><span></span><span></span><span></span>
-                <span></span><span></span><span></span><span></span>
+              <div class="rec-meta">
+                <span class="rec-dot" aria-hidden="true"></span>
+                <span class="rec-timer" id="recTimer">0:00</span>
               </div>
-              <span class="rec-hint">Enter / stop to send</span>
+              <div class="rec-live" id="recLive" aria-live="polite"></div>
             </div>
-            <button type="button" class="icon-btn stop-send" id="stopRecBtn" title="Send voice note" aria-label="Send voice note">
+            <button type="button" class="icon-btn stop-send" id="stopRecBtn" title="Send" aria-label="Send">
               <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z"/></svg>
             </button>
           </div>
@@ -401,12 +386,15 @@
     const textRow = document.getElementById("textRow");
     const recRow = document.getElementById("recRow");
     const recTimerEl = document.getElementById("recTimer");
+    const recLiveEl = document.getElementById("recLive");
     const stopRecBtn = document.getElementById("stopRecBtn");
     const cancelRecBtn = document.getElementById("cancelRecBtn");
     const confirmBar = document.getElementById("confirmBar");
     const cancelBtn = document.getElementById("cancelBtn");
     const healthEl = document.getElementById("health");
     const dot = document.getElementById("dot");
+
+    const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
 
     let mediaRecorder = null;
     let mediaStream = null;
@@ -415,6 +403,10 @@
     let discardRecording = false;
     let recStartedAt = 0;
     let recTimerId = null;
+    let recognition = null;
+    let liveFinal = "";
+    let liveInterim = "";
+    let useLiveSpeech = false;
 
     function syncComposerButtons() {
       const hasText = input.value.trim().length > 0;
@@ -434,6 +426,9 @@
       recRow.hidden = false;
       recStartedAt = Date.now();
       recTimerEl.textContent = "0:00";
+      liveFinal = "";
+      liveInterim = "";
+      updateLiveTranscript();
       clearInterval(recTimerId);
       recTimerId = setInterval(() => {
         recTimerEl.textContent = formatRecTime(Date.now() - recStartedAt);
@@ -447,6 +442,78 @@
       textRow.hidden = false;
       syncComposerButtons();
       input.focus();
+    }
+
+    function updateLiveTranscript() {
+      const finalPart = liveFinal.trim();
+      const interimPart = liveInterim.trim();
+      recLiveEl.classList.toggle("has-text", !!(finalPart || interimPart));
+      if (!finalPart && !interimPart) {
+        recLiveEl.innerHTML = "";
+        return;
+      }
+      recLiveEl.innerHTML =
+        (finalPart ? escapeHtml(finalPart) + (interimPart ? " " : "") : "") +
+        (interimPart ? `<span class="interim">${escapeHtml(interimPart)}</span>` : "");
+      recLiveEl.scrollTop = recLiveEl.scrollHeight;
+    }
+
+    function getLiveTranscript() {
+      return `${liveFinal} ${liveInterim}`.replace(/\s+/g, " ").trim();
+    }
+
+    function stopSpeechRecognition() {
+      if (!recognition) return;
+      try {
+        recognition.onend = null;
+        recognition.stop();
+      } catch (_) { /* ignore */ }
+      recognition = null;
+    }
+
+    function startSpeechRecognition() {
+      if (!SpeechRecognitionAPI) return false;
+      recognition = new SpeechRecognitionAPI();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.maxAlternatives = 1;
+      recognition.lang = navigator.language || "en-US";
+
+      recognition.onresult = (event) => {
+        let interim = "";
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const piece = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            liveFinal += (liveFinal && !liveFinal.endsWith(" ") ? " " : "") + piece;
+          } else {
+            interim += piece;
+          }
+        }
+        liveInterim = interim;
+        updateLiveTranscript();
+      };
+
+      recognition.onerror = (event) => {
+        if (event.error === "aborted" || event.error === "no-speech") return;
+        if (event.error === "not-allowed") {
+          addBubble("Microphone permission denied for live transcription.", "bot");
+        }
+      };
+
+      recognition.onend = () => {
+        // Chrome stops after a pause — keep listening while recording
+        if (isRecording && recognition) {
+          try { recognition.start(); } catch (_) { /* already started */ }
+        }
+      };
+
+      try {
+        recognition.start();
+        return true;
+      } catch (_) {
+        recognition = null;
+        return false;
+      }
     }
 
     function setBusy(busy) {
@@ -603,53 +670,94 @@
       }
     }
 
-    async function startRecording() {
-      if (!navigator.mediaDevices?.getUserMedia) {
-        addBubble("Microphone not supported in this browser.", "bot");
+    async function finishRecordingSend() {
+      const liveText = getLiveTranscript();
+      hideRecordingUi();
+
+      if (discardRecording) {
+        discardRecording = false;
+        audioChunks = [];
         return;
       }
-      try {
-        mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+      // Live transcript ready — send instantly (no Whisper wait)
+      if (liveText) {
         audioChunks = [];
-        discardRecording = false;
-        const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-          ? "audio/webm;codecs=opus"
-          : (MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "");
-        mediaRecorder = mime
-          ? new MediaRecorder(mediaStream, { mimeType: mime })
-          : new MediaRecorder(mediaStream);
-        mediaRecorder.ondataavailable = (e) => {
-          if (e.data && e.data.size > 0) audioChunks.push(e.data);
-        };
-        mediaRecorder.onstop = async () => {
-          mediaStream?.getTracks().forEach((t) => t.stop());
-          mediaStream = null;
-          hideRecordingUi();
-          const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType || "audio/webm" });
-          audioChunks = [];
-          if (discardRecording) {
-            discardRecording = false;
-            return;
-          }
-          if (blob.size < 200) {
-            addBubble("Voice note too short. Try again.", "bot");
-            return;
-          }
-          await sendVoice(blob);
-        };
-        mediaRecorder.start();
+        addBubble(liveText, "user", "voice");
+        await chat(liveText, false);
+        return;
+      }
+
+      // Fallback: upload audio to server Whisper
+      const blob = new Blob(audioChunks, { type: mediaRecorder?.mimeType || "audio/webm" });
+      audioChunks = [];
+      if (blob.size < 200) {
+        addBubble("No speech detected. Try again or type your message.", "bot");
+        return;
+      }
+      await sendVoice(blob);
+    }
+
+    async function startRecording() {
+      discardRecording = false;
+      liveFinal = "";
+      liveInterim = "";
+      useLiveSpeech = false;
+      audioChunks = [];
+
+      if (!SpeechRecognitionAPI && !navigator.mediaDevices?.getUserMedia) {
+        addBubble("Microphone / live speech not supported. Use Chrome or Edge.", "bot");
+        return;
+      }
+
+      try {
+        if (navigator.mediaDevices?.getUserMedia) {
+          mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          const mime = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+            ? "audio/webm;codecs=opus"
+            : (MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "");
+          mediaRecorder = mime
+            ? new MediaRecorder(mediaStream, { mimeType: mime })
+            : new MediaRecorder(mediaStream);
+          mediaRecorder.ondataavailable = (e) => {
+            if (e.data && e.data.size > 0) audioChunks.push(e.data);
+          };
+          mediaRecorder.onstop = async () => {
+            mediaStream?.getTracks().forEach((t) => t.stop());
+            mediaStream = null;
+            await finishRecordingSend();
+          };
+          mediaRecorder.start(250);
+        }
+
+        useLiveSpeech = startSpeechRecognition();
         isRecording = true;
         showRecordingUi();
+        if (!useLiveSpeech) {
+          recLiveEl.classList.add("has-text");
+          recLiveEl.textContent = "Recording… (live text needs Chrome/Edge)";
+        }
       } catch (err) {
+        stopSpeechRecognition();
+        mediaStream?.getTracks().forEach((t) => t.stop());
+        mediaStream = null;
         addBubble("Microphone permission denied or unavailable.", "bot");
       }
     }
 
     function stopRecording({ discard = false } = {}) {
-      if (!mediaRecorder || mediaRecorder.state === "inactive") return;
+      if (!isRecording) return;
       discardRecording = discard;
       isRecording = false;
-      mediaRecorder.stop();
+      stopSpeechRecognition();
+
+      if (mediaRecorder && mediaRecorder.state !== "inactive") {
+        mediaRecorder.stop();
+        return;
+      }
+
+      // Live-only path (no MediaRecorder)
+      finishRecordingSend();
     }
 
     micBtn.addEventListener("click", async () => {
@@ -699,13 +807,15 @@
         const runtime = data.ai || data.ollama || {};
         const ollamaOk = runtime.ok && runtime.model_available;
         const voice = data.voice || {};
+        const liveOk = !!SpeechRecognitionAPI;
         dot.classList.toggle("ok", !!ollamaOk);
         const model = data.ai_model || data.model;
         let label = ollamaOk
           ? `Ready · ${data.ai_provider || "ollama"} · ${model}`
           : `API up · AI: ${runtime.error || "model not found — run ollama pull " + model}`;
+        label += liveOk ? " · Live STT: on" : " · Live STT: use Chrome/Edge";
         if (voice.enabled) {
-          label += voice.ok ? ` · Voice: ${voice.model || "whisper"}` : " · Voice: setup needed";
+          label += voice.ok ? ` · Whisper fallback: ${voice.model || "ok"}` : " · Whisper: setup needed";
         }
         healthEl.textContent = label;
       } catch {
@@ -714,7 +824,7 @@
     }
 
     syncComposerButtons();
-    addBubble("Text ya voice note: date → time → category → label. Missing clear hone tak poochta rahega.", "bot");
+    addBubble("Mic dabao → bolte hi text live type hoga → send par turant message. date → time → category → label.", "bot");
     checkHealth();
     refreshEvents();
   </script>
