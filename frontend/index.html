@@ -606,11 +606,11 @@
     const dot = document.getElementById("dot");
 
     const PLACEHOLDERS = {
-      date: "e.g. 14 August 2027",
-      time: "e.g. 9:25 pm",
+      date: "e.g. 20 August 2026, 10 pm",
+      time: "e.g. 10 pm",
       category: "To Do · Appointment · Important",
-      label: "e.g. Card Check",
-      default: "Message",
+      label: "Type a short title / label…",
+      default: "Date and time, or just say hi…",
     };
 
     const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -631,13 +631,8 @@
     let welcomeSpoken = false;
     let welcomeUnlockBound = false;
 
-    const WELCOME_VARIANTS = [
-      "Hey — good to see you. Shall we capture a reminder while it's on your mind?",
-      "Hi! I'm Filofax. Drop a date, a time, or just the idea — I'll follow along.",
-      "Hello! Soft landings only. Want to add a reminder together?",
-      "Welcome. What's worth remembering today?",
-    ];
-    const WELCOME_MSG = WELCOME_VARIANTS[Math.floor(Math.random() * WELCOME_VARIANTS.length)];
+    const WELCOME_MSG =
+      "Let's set up the event. What is the date and time for this event?";
 
     function loadVoices() {
       if (!canSpeak) return [];
@@ -706,9 +701,13 @@
     let speakTimer = null;
     let keepAliveTimer = null;
     let activePlayBtn = null;
+    let speakGeneration = 0;
+    let audioUnlocked = false;
+    let speakRetryTimer = null;
 
     function stopSpeaking() {
       if (!canSpeak) return;
+      speakGeneration += 1;
       if (speakTimer) {
         clearTimeout(speakTimer);
         speakTimer = null;
@@ -716,6 +715,10 @@
       if (keepAliveTimer) {
         clearInterval(keepAliveTimer);
         keepAliveTimer = null;
+      }
+      if (speakRetryTimer) {
+        clearTimeout(speakRetryTimer);
+        speakRetryTimer = null;
       }
       if (activePlayBtn) {
         activePlayBtn.classList.remove("playing");
@@ -726,15 +729,63 @@
       } catch (_) { /* ignore */ }
     }
 
+    /** Chromium blocks TTS after async fetch unless synth was unlocked by a user gesture. */
+    function unlockSpeechAudio() {
+      if (!canSpeak) return;
+      audioUnlocked = true;
+      try {
+        window.speechSynthesis.resume();
+      } catch (_) { /* ignore */ }
+      try {
+        const warm = new SpeechSynthesisUtterance(" ");
+        warm.volume = 0;
+        warm.rate = 2;
+        warm.pitch = 1;
+        window.speechSynthesis.speak(warm);
+        window.speechSynthesis.cancel();
+      } catch (_) { /* ignore */ }
+    }
+
+    function ttsClean(text) {
+      return String(text || "")
+        .replace(/[•●]/g, ". ")
+        .replace(/[▶◄►]/g, " ")
+        .replace(/[*_`#]+/g, "")
+        .replace(/\s*\n\s*/g, ". ")
+        .replace(/\s+/g, " ")
+        .replace(/\.(\s*\.)+/g, ".")
+        .trim();
+    }
+
     function speakText(text, { isWelcome = false, force = false, playBtn = null } = {}) {
       if ((!ttsEnabled && !force) || !canSpeak || !text) return;
-      const clean = String(text).replace(/\s+/g, " ").trim();
+      const clean = ttsClean(text);
       if (!clean) return;
 
-      const start = () => {
-        stopSpeaking();
-        // Chrome: cancel() then immediate speak often fails — small delay
+      const myGen = ++speakGeneration;
+
+      const kick = (attempt) => {
+        if (myGen !== speakGeneration) return;
+
+        if (speakTimer) {
+          clearTimeout(speakTimer);
+          speakTimer = null;
+        }
+        if (keepAliveTimer) {
+          clearInterval(keepAliveTimer);
+          keepAliveTimer = null;
+        }
+        if (speakRetryTimer) {
+          clearTimeout(speakRetryTimer);
+          speakRetryTimer = null;
+        }
+
+        try {
+          window.speechSynthesis.cancel();
+        } catch (_) { /* ignore */ }
+
         speakTimer = setTimeout(() => {
+          if (myGen !== speakGeneration) return;
           try {
             window.speechSynthesis.resume();
           } catch (_) { /* ignore */ }
@@ -745,26 +796,32 @@
             utter.voice = voice;
             utter.lang = voice.lang || "en-US";
           } else {
-            utter.lang = "en-US";
+            utter.lang = navigator.language || "en-US";
           }
-          // Clear, natural female-assistant delivery
           utter.rate = 0.95;
           utter.pitch = 1.08;
           utter.volume = 1;
 
+          let started = false;
           if (playBtn) {
             activePlayBtn = playBtn;
             playBtn.classList.add("playing");
           }
 
           utter.onstart = () => {
+            started = true;
             if (isWelcome) welcomeSpoken = true;
+            audioUnlocked = true;
           };
 
-          // Chrome long-utterance freeze workaround
           keepAliveTimer = setInterval(() => {
+            if (myGen !== speakGeneration) {
+              clearInterval(keepAliveTimer);
+              keepAliveTimer = null;
+              return;
+            }
             try {
-              if (!window.speechSynthesis.speaking) {
+              if (!window.speechSynthesis.speaking && !window.speechSynthesis.pending) {
                 clearInterval(keepAliveTimer);
                 keepAliveTimer = null;
                 return;
@@ -774,12 +831,16 @@
               clearInterval(keepAliveTimer);
               keepAliveTimer = null;
             }
-          }, 8000);
+          }, 4000);
 
           const done = () => {
             if (keepAliveTimer) {
               clearInterval(keepAliveTimer);
               keepAliveTimer = null;
+            }
+            if (speakRetryTimer) {
+              clearTimeout(speakRetryTimer);
+              speakRetryTimer = null;
             }
             if (playBtn) playBtn.classList.remove("playing");
             if (activePlayBtn === playBtn) activePlayBtn = null;
@@ -788,28 +849,55 @@
           utter.onerror = () => {
             done();
             if (isWelcome) welcomeSpoken = false;
+            if (attempt < 1 && myGen === speakGeneration) {
+              speakRetryTimer = setTimeout(() => kick(attempt + 1), 220);
+            }
           };
 
-          window.speechSynthesis.speak(utter);
-        }, 60);
+          try {
+            window.speechSynthesis.speak(utter);
+            window.speechSynthesis.resume();
+          } catch (_) {
+            done();
+            if (attempt < 1 && myGen === speakGeneration) {
+              speakRetryTimer = setTimeout(() => kick(attempt + 1), 220);
+            }
+            return;
+          }
+
+          // Queued but never started (common after await fetch)
+          speakRetryTimer = setTimeout(() => {
+            if (myGen !== speakGeneration || started || attempt >= 1) return;
+            try {
+              window.speechSynthesis.cancel();
+            } catch (_) { /* ignore */ }
+            kick(attempt + 1);
+          }, 750);
+        }, attempt === 0 ? 140 : 240);
       };
 
+      const begin = () => kick(0);
+
       if (!loadVoices().length) {
+        let begun = false;
         const once = () => {
+          if (begun) return;
+          begun = true;
           window.speechSynthesis.removeEventListener("voiceschanged", once);
-          start();
+          begin();
         };
         window.speechSynthesis.addEventListener("voiceschanged", once);
-        setTimeout(start, 500);
+        setTimeout(once, 600);
         return;
       }
-      start();
+      begin();
     }
 
     let welcomeBubbleEl = null;
 
     function tryWelcomeSpeak() {
       if (welcomeSpoken || !ttsEnabled) return;
+      unlockSpeechAudio();
       const btn = welcomeBubbleEl?.querySelector(".bubble-play") || null;
       speakText(WELCOME_MSG, { isWelcome: true, playBtn: btn });
     }
@@ -818,14 +906,12 @@
       if (welcomeUnlockBound) return;
       welcomeUnlockBound = true;
       const unlock = () => {
+        unlockSpeechAudio();
         if (!welcomeSpoken) tryWelcomeSpeak();
-        window.removeEventListener("pointerdown", unlock);
-        window.removeEventListener("keydown", unlock);
-        window.removeEventListener("touchstart", unlock);
       };
-      window.addEventListener("pointerdown", unlock);
+      window.addEventListener("pointerdown", unlock, { passive: true });
       window.addEventListener("keydown", unlock);
-      window.addEventListener("touchstart", unlock);
+      window.addEventListener("touchstart", unlock, { passive: true });
     }
 
     function syncTtsButton() {
@@ -835,6 +921,11 @@
     }
 
     if (canSpeak) {
+      try {
+        const saved = localStorage.getItem("filofax_tts");
+        if (saved === "0") ttsEnabled = false;
+        if (saved === "1") ttsEnabled = true;
+      } catch (_) { /* ignore */ }
       loadVoices();
       window.speechSynthesis.onvoiceschanged = () => {
         cachedVoice = null;
@@ -844,11 +935,16 @@
         cachedVoice = null;
         getAssistantVoice();
       }, 300);
+      bindWelcomeUnlock();
     }
 
     if (ttsBtn) {
       ttsBtn.addEventListener("click", () => {
+        unlockSpeechAudio();
         ttsEnabled = !ttsEnabled;
+        try {
+          localStorage.setItem("filofax_tts", ttsEnabled ? "1" : "0");
+        } catch (_) { /* ignore */ }
         if (!ttsEnabled) {
           stopSpeaking();
         } else if (!welcomeSpoken) {
@@ -1070,6 +1166,7 @@
         btn.type = "button";
         btn.textContent = label;
         btn.addEventListener("click", async () => {
+          unlockSpeechAudio();
           addBubble(label, "user");
           setSlotChips([]);
           await chat(label, false);
@@ -1102,6 +1199,10 @@
       const msg = data.message || JSON.stringify(data);
       const bubble = addBubble(msg, "bot");
       const playBtn = bubble.querySelector(".bubble-play");
+      // Re-assert unlock + resume right before speaking (post-fetch)
+      if (canSpeak && ttsEnabled) {
+        try { window.speechSynthesis.resume(); } catch (_) { /* ignore */ }
+      }
       speakText(msg, { playBtn });
       setConfirmUi(Boolean(data.needs_confirmation));
       const nextField = (data.missing_fields && data.missing_fields[0]) || null;
@@ -1168,6 +1269,8 @@
         && !/^(todo|to do|important|appointment)\b/i.test(lower.trim());
       if (freshCreate) setPending(null);
 
+      // Keep TTS unlocked across the async network wait
+      unlockSpeechAudio();
       setBusy(true);
       showTyping("Thinking…");
       try {
@@ -1195,6 +1298,7 @@
     }
 
     async function sendVoice(blob) {
+      unlockSpeechAudio();
       setBusy(true);
       showTyping("Listening / transcribing…");
       try {
@@ -1319,6 +1423,7 @@
     }
 
     micBtn.addEventListener("click", async () => {
+      unlockSpeechAudio();
       if (!isRecording) await startRecording();
     });
 
@@ -1329,6 +1434,7 @@
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
+      unlockSpeechAudio();
       if (isRecording) {
         stopRecording();
         return;
@@ -1342,12 +1448,14 @@
     });
 
     confirmYes?.addEventListener("click", async () => {
+      unlockSpeechAudio();
       setConfirmUi(false);
       addBubble("Yes, save", "user");
       await chat("yes", true);
     });
 
     confirmNo?.addEventListener("click", async () => {
+      unlockSpeechAudio();
       setConfirmUi(false);
       addBubble("No", "user");
       await chat("no", false);

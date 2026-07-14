@@ -413,6 +413,44 @@ def test_confirm_please_add_does_not_restart():
         clear_draft(user)
 
 
+def test_category_sentence_does_not_become_label():
+    from backend.slot_fill import absorb_user_message, missing_fields, next_missing
+
+    draft = {
+        "date": "2026-08-20",
+        "time": "22:00",
+        "category": None,
+        "label": None,
+        "notes": None,
+    }
+    out = absorb_user_message(
+        draft, "OK so the category is to do", preferred_field="category", today=TODAY
+    )
+    assert out is not None
+    assert out["category"] == "To Do"
+    assert out["label"] is None
+    assert missing_fields(out) == ["label"]
+    assert next_missing(out) == "label"
+
+
+def test_plain_title_still_fills_label():
+    from backend.slot_fill import absorb_user_message, next_missing
+
+    draft = {
+        "date": "2026-08-20",
+        "time": "22:00",
+        "category": "To Do",
+        "label": None,
+        "notes": None,
+    }
+    out = absorb_user_message(
+        draft, "Check my laptop", preferred_field="label", today=TODAY
+    )
+    assert out is not None
+    assert out["label"] == "Check My Laptop"
+    assert next_missing(out) is None
+
+
 def test_absorb_any_order_while_asking_date():
     from backend.slot_fill import absorb_user_message, empty_draft, next_missing
 

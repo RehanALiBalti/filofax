@@ -711,18 +711,30 @@ def apply_slot_reply(
         return updated
 
     if field == "label":
-        # Never treat a bare date / time / category answer as the event name
+        # Never steal date / time / category answers as the event name
         if message_has_explicit_time(text) and not message_has_explicit_label(text):
             return None
         if message_has_explicit_date(text) and not message_has_explicit_label(text):
             return None
         if message_has_explicit_category(text) and not message_has_explicit_label(text):
-            if len(text.split()) <= 4:
-                return None
+            return None
+        if re.search(
+            r"\b(category|date|time)\b",
+            text,
+            flags=re.IGNORECASE,
+        ) and not message_has_explicit_label(text):
+            return None
+
         value = _extract_label(text)
         if not value:
-            # Last resort: use full text only if it's reasonably short
-            if len(text.split()) <= 8:
+            # Plain short title only — e.g. "Card Check", not a full sentence dump
+            words = text.split()
+            if (
+                1 <= len(words) <= 8
+                and not message_has_explicit_date(text)
+                and not message_has_explicit_time(text)
+                and not message_has_explicit_category(text)
+            ):
                 value = _clean_label(text)
             if not value:
                 return None

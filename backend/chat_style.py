@@ -59,57 +59,45 @@ def _lang_bucket(language: LanguageInfo | None, text: str = "") -> str:
 
 _GREETINGS: dict[str, list[str]] = {
     "en": [
-        "Hey — good to see you. Shall we capture a reminder while it's on your mind?",
-        "Hi! I'm here and ready. Want to lock something onto your calendar?",
-        "Hello! Fresh start. Tell me what you'd like to remember.",
-        "Hey there. I make reminder-making feel light — want to try one?",
-        "Hi! I'm Filofax. Drop a date, a time, or just the idea — I'll follow along.",
-        "Welcome back. What's worth remembering today?",
-        "Hello! Soft landings only. Want to add a reminder together?",
+        "Let's set up the event. What is the date and time for this event?",
+        "Let's set up the event — what's the date and time?",
+        "Ready when you are. What date and time should this event be?",
+        "Great — let's set it up. Date and time?",
     ],
     "ur-Latn": [
-        "Assalamu alaikum! Main ready hoon — kya reminder set karein?",
-        "Salam! Aaj kya yaad rakhna hai? Bol dein, main sambhal loonga.",
-        "Hello! Soft aur simple — reminder banate hain?",
-        "Khush aamdeed. Date, time, ya sirf idea — jo bhi bolo, main follow karoon ga.",
-        "Salam! Filofax yahan hai. Reminder add karein?",
+        "Chalen event set karte hain. Date aur time kya rakhain?",
+        "Event setup — date aur time bata dein?",
+        "Theek — date aur time kya hoga?",
     ],
     "ur": [
-        "السلام علیکم! میں تیار ہوں — کیا یاد دہانی بنائیں؟",
-        "سلام! آج کیا یاد رکھنا ہے؟",
+        "چلیں ایونٹ سیٹ کرتے ہیں۔ تاریخ اور وقت کیا رکھیں؟",
     ],
     "hi-Latn": [
-        "Namaste! Ready hoon — reminder banayein?",
-        "Hi! Aaj kya yaad rakhna hai?",
-        "Namaste! Soft aur simple — chaliye reminder set karein.",
+        "Chaliye event set karte hain. Date aur time kya rakhein?",
     ],
     "hi": [
-        "नमस्ते! मैं तैयार हूँ — क्या रिमाइंडर जोड़ें?",
+        "चलिए इवेंट सेट करते हैं। तारीख और समय क्या रखें?",
     ],
 }
 
 _SMALLTALK: dict[str, list[str]] = {
     "en": [
-        "Love that energy. Want to catch a reminder while we're chatting?",
-        "Nice — I'm good too. Ready to pencil something in?",
-        "Glad you're well. Shall we set one small thing so you don't forget?",
-        "Cool. Whenever you're ready, toss me a date or a title.",
-        "Happy to hear it. Want a reminder next?",
+        "Nice. Let's set up the event — date and time?",
+        "Awesome. What date and time should this be?",
+        "Cool — ready to set it up. Date and time?",
     ],
     "ur-Latn": [
-        "Bohat khoob! Ab chhota sa reminder set karein?",
-        "Achha laga sun ke. Ready hoon — batayein kya add karna hai.",
-        "Zabardast! Date ya title jo bhi — main note kar loonga.",
+        "Achha! Event set karte hain — date aur time?",
+        "Zabardast. Date aur time bata dein?",
     ],
     "ur": [
-        "اچھا لگا! کیا اب یاد دہانی شامل کریں؟",
+        "اچھا! تاریخ اور وقت بتائیں؟",
     ],
     "hi-Latn": [
-        "Badhiya! Ab ek chhota reminder set karein?",
-        "Bahut accha. Ready hoon — kya add karna hai?",
+        "Badhiya! Date aur time kya rakhein?",
     ],
     "hi": [
-        "बहुत अच्छा! क्या अब रिमाइंडर जोड़ें?",
+        "बहुत अच्छा! तारीख और समय?",
     ],
 }
 
@@ -172,29 +160,27 @@ _ACK: dict[str, dict[str, list[str]]] = {
 _ASK: dict[str, dict[str, list[str]]] = {
     "date": {
         "en": [
-            "Which day should hold this?",
-            "What date feels right?",
-            "When should this live on your calendar?",
-            "Pick a date — today, tomorrow, or any day you like.",
-            "Which date should I circle?",
+            "Let's set up the event. What is the date and time for this event?",
+            "What date and time should this event be?",
+            "Which day and time work for you?",
+            "Tell me the date and time.",
         ],
         "ur-Latn": [
-            "Kis date pe rakhna hai?",
-            "Kaun si tareekh theek rahegi?",
-            "Date bata dein — aaj, kal, ya koi bhi.",
+            "Chalen event set karte hain. Date aur time kya rakhain?",
+            "Date aur time bata dein?",
+            "Kab aur kis waqt ka event hai?",
         ],
     },
     "time": {
         "en": [
+            "And what time should it be?",
             "What time should it land?",
             "Around when — morning, evening, or exact time?",
             "Got a time in mind?",
-            "And the clock?",
-            "When during the day?",
         ],
         "ur-Latn": [
+            "Aur time kya rakhain?",
             "Kis waqt ka hai?",
-            "Time kya rakhain?",
             "Subah, sham, ya exact time?",
         ],
     },
@@ -211,15 +197,17 @@ _ASK: dict[str, dict[str, list[str]]] = {
     },
     "label": {
         "en": [
-            "Give it a short, memorable name?",
-            "What should we call this one?",
-            "A tiny title — two or three words works great.",
-            "How should it show up on your list?",
+            "What title or label should we use for this event?",
+            "Give it a short title / label?",
+            "What should we call this one — a short name?",
+            "A tiny title for the list — what do you want?",
+            "How should it show up — title please?",
         ],
         "ur-Latn": [
-            "Chhota sa title / label?",
-            "Naam kya den — short aur clear?",
-            "List pe kaise dikhe — title bata dein.",
+            "Is event ka title / label kya rakhein?",
+            "Chhota sa title bata dein?",
+            "Naam / label kya den?",
+            "List pe kaise dikhe — title?",
         ],
     },
 }
@@ -371,10 +359,15 @@ def _fmt_date(value: Any) -> str:
 
 def event_summary(event: dict[str, Any]) -> str:
     label = event.get("label") or "Reminder"
-    date_s = _fmt_date(event.get("date"))
+    date_s = _fmt_date(event.get("date")) if event.get("date") else "—"
     time_s = _fmt_time(event.get("time")) if event.get("time") else "—"
     cat = event.get("category") or "—"
-    return f"• {label}\n• {date_s} · {time_s}\n• {cat}"
+    return (
+        f"• Title: {label}\n"
+        f"• Date: {date_s}\n"
+        f"• Time: {time_s}\n"
+        f"• Category: {cat}"
+    )
 
 
 def draft_so_far_line(
@@ -384,17 +377,17 @@ def draft_so_far_line(
     user_id: str = "default",
     text: str = "",
 ) -> str:
-    """Compact running summary of filled slots."""
+    """Compact running summary of filled slots with field labels."""
     event = event or {}
     bits: list[str] = []
     if event.get("date"):
-        bits.append(_fmt_date(event.get("date")))
+        bits.append(f"Date: {_fmt_date(event.get('date'))}")
     if event.get("time"):
-        bits.append(_fmt_time(event.get("time")))
+        bits.append(f"Time: {_fmt_time(event.get('time'))}")
     if event.get("category"):
-        bits.append(str(event.get("category")))
+        bits.append(f"Category: {event.get('category')}")
     if event.get("label"):
-        bits.append(f'"{event.get("label")}"')
+        bits.append(f'Title: "{event.get("label")}"')
     if not bits:
         return ""
     bucket = _lang_bucket(language, text)
@@ -438,11 +431,13 @@ def suggested_replies_for(
     if needs_confirmation:
         return ["Yes, save", "Change time", "Change date", "No"]
     if next_field == "date":
-        return ["Today", "Tomorrow"]
+        return ["Today", "Tomorrow", "9:00 AM", "5:00 PM"]
     if next_field == "time":
-        return ["9:00 AM", "5:00 PM", "9:25 PM"]
+        return ["9:00 AM", "5:00 PM", "9:25 PM", "10:00 PM"]
     if next_field == "category":
         return ["To Do", "Appointment", "Important"]
+    if next_field == "label":
+        return []  # free-text title — no fake chips
     return []
 
 
@@ -453,6 +448,9 @@ def greeting_message(
     text: str = "",
 ) -> str:
     bucket = _lang_bucket(language, text)
+    # Prefer the clear setup opener for English
+    if bucket == "en":
+        return "Let's set up the event. What is the date and time for this event?"
     opts = _GREETINGS.get(bucket) or _GREETINGS["en"]
     return _pick(opts, user_id=user_id)
 
@@ -476,6 +474,9 @@ def ask_next_field_message(
     text: str = "",
 ) -> str:
     bucket = _lang_bucket(language, text)
+    # Opening ask: date+time together when we still need the date
+    if field == "date" and bucket == "en":
+        return "Let's set up the event. What is the date and time for this event?"
     by_field = _ASK.get(field) or _ASK["date"]
     opts = by_field.get(bucket) or by_field.get("en") or [f"Please provide {field}."]
     return _pick(opts, salt=field, user_id=user_id)

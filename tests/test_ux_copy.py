@@ -10,6 +10,24 @@ from backend.chat_style import (
 from backend.language import default_language
 
 
+def test_event_summary_has_field_labels():
+    from backend.chat_style import event_summary
+
+    s = event_summary(
+        {
+            "label": "Laptop Check",
+            "date": "2026-09-20",
+            "time": "12:00",
+            "category": "To Do",
+        }
+    )
+    assert "Title: Laptop Check" in s
+    assert "Date:" in s
+    assert "Time:" in s
+    assert "Category: To Do" in s
+    assert "12 PM" in s or "12:00" in s
+
+
 def test_draft_so_far_line():
     lang = default_language()
     line = draft_so_far_line(
@@ -22,9 +40,10 @@ def test_draft_so_far_line():
         lang,
         user_id="ux-test",
     )
+    assert "Date:" in line
+    assert "Time:" in line
+    assert "Category: Appointment" in line
     assert "14 Aug" in line or "Aug" in line
-    assert "9:25" in line or "21:25" in line
-    assert "Appointment" in line
 
 
 def test_progress_includes_summary_and_ask():
@@ -46,6 +65,7 @@ def test_progress_includes_summary_and_ask():
     lower = msg.lower()
     assert "9:25" in msg or "updated" in lower or "no worries" in lower
     assert "so far" in lower or "got:" in lower or "ab tak" in lower
+    assert "date:" in lower
     assert "category" in lower or "to do" in lower
 
 
