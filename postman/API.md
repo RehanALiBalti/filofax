@@ -67,7 +67,11 @@ POST /api/assistant/chat
 }
 ```
 
-5. Use a stable `user_id` per logged-in app user (never share `"default"` in production).
+5. Pass the app user in the page URL so chat saves under that id:
+
+`https://filofax.buzzwaretech.com/?userid=YOUR_FIREBASE_UID`
+
+Also accepted: `user_id`, `userId`. Frontend sends this as `user_id` on every chat/voice/clear call. Firestore `myReminders.userId` matches this value.
 
 ## Reminders (Firebase `myReminders`)
 

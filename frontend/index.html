@@ -617,7 +617,30 @@
       if (path === "/filofax" || path.startsWith("/filofax/")) return "/filofax";
       return "";
     })();
-    const userId = "default";
+
+    /** Resolve app user from URL: ?userid=zyx  (also accepts user_id / userId) */
+    function resolveUserId() {
+      const params = new URLSearchParams(window.location.search || "");
+      const raw =
+        params.get("userid") ||
+        params.get("user_id") ||
+        params.get("userId") ||
+        "";
+      const fromUrl = String(raw).trim();
+      if (fromUrl) {
+        try {
+          sessionStorage.setItem("filofax_user_id", fromUrl);
+        } catch (_) { /* ignore */ }
+        return fromUrl;
+      }
+      try {
+        const saved = sessionStorage.getItem("filofax_user_id");
+        if (saved && saved.trim()) return saved.trim();
+      } catch (_) { /* ignore */ }
+      return "default";
+    }
+
+    const userId = resolveUserId();
     let pendingEvent = null;
 
     const logEl = document.getElementById("log");
