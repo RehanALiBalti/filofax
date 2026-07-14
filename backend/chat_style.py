@@ -585,7 +585,7 @@ def retry_prefix(
 
 def is_affirmative(message: str) -> bool:
     t = re.sub(r"[.!?,]+$", "", message.strip().lower()).strip()
-    return t in {
+    if t in {
         "yes",
         "y",
         "yeah",
@@ -607,7 +607,20 @@ def is_affirmative(message: str) -> bool:
         "add",
         "go ahead",
         "please save",
-    } or t.startswith("yes ") or t.startswith("haan")
+        "please add",
+        "looks good",
+        "sounds good",
+    }:
+        return True
+    if t.startswith(("yes ", "yeah ", "yep ", "yup ", "haan", "han ")):
+        return True
+    if re.search(
+        r"\b(looks good|sounds good|please (save|add)|save it|add it|"
+        r"go ahead|add (in|to) my)\b",
+        t,
+    ):
+        return True
+    return False
 
 
 def is_negative(message: str) -> bool:

@@ -334,6 +334,85 @@ def test_time_correction_while_asking_category():
         clear_draft(user)
 
 
+def test_ok_category_not_smalltalk():
+    from backend.assistant import _is_smalltalk, AssistantService
+    from backend.database import SessionLocal
+    from backend.draft_store import clear_draft, save_draft
+    from backend.models import Event
+
+    assert not _is_smalltalk("OK so the category is to do")
+
+    user = "test-ok-cat"
+    clear_draft(user)
+    draft = {
+        "date": "2026-08-20",
+        "time": "22:00",
+        "category": None,
+        "label": None,
+        "notes": None,
+    }
+    save_draft(user, draft)
+    svc = AssistantService(ai=None)
+    db = SessionLocal()
+    try:
+        out = svc.handle_chat(
+            db,
+            message="OK so the category is to do",
+            user_id=user,
+            pending_event=draft,
+        )
+        assert out.pending_event is not None
+        assert out.pending_event["category"] == "To Do"
+        assert "whenever you're ready" not in (out.message or "").lower()
+    finally:
+        db.query(Event).filter(Event.user_id == user).delete()
+        db.commit()
+        db.close()
+        clear_draft(user)
+
+
+def test_confirm_please_add_does_not_restart():
+    from backend.assistant import AssistantService
+    from backend.chat_style import is_affirmative
+    from backend.database import SessionLocal
+    from backend.draft_store import clear_draft, save_draft
+    from backend.models import Event
+    from backend.slot_fill import is_fresh_create_request
+
+    msg = "Yeah it looks good please add in my reminder"
+    assert is_affirmative(msg)
+    assert not is_fresh_create_request(msg)
+
+    user = "test-confirm-please-add"
+    clear_draft(user)
+    pending = {
+        "date": "2026-08-20",
+        "time": "22:00",
+        "category": "Important",
+        "label": "To Check My Laptop",
+        "notes": None,
+        "_awaiting_confirm": True,
+    }
+    save_draft(user, pending)
+    svc = AssistantService(ai=None)
+    db = SessionLocal()
+    try:
+        out = svc.handle_chat(
+            db,
+            message=msg,
+            user_id=user,
+            pending_event=pending,
+        )
+        assert out.event is not None
+        assert out.event.label == "To Check My Laptop"
+        assert "which date" not in (out.message or "").lower()
+    finally:
+        db.query(Event).filter(Event.user_id == user).delete()
+        db.commit()
+        db.close()
+        clear_draft(user)
+
+
 def test_absorb_any_order_while_asking_date():
     from backend.slot_fill import absorb_user_message, empty_draft, next_missing
 

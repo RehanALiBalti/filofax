@@ -618,6 +618,13 @@ def is_fresh_create_request(text: str) -> bool:
     lower = text.strip().lower()
     if not lower:
         return False
+    # Confirm / save intents must never wipe an in-progress reminder
+    if re.search(
+        r"\b(looks good|sounds good|please (save|add)|save it|add it|"
+        r"go ahead|add (in|to) my)\b",
+        lower,
+    ):
+        return False
     # Pure category / short slot answers are not a fresh create
     if _parse_category_reply(lower) and len(lower.split()) <= 6 and not any(
         h in lower for h in ("add", "create", "schedule", "remind", "reminder", "event")

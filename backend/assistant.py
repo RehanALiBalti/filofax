@@ -176,10 +176,11 @@ def _is_smalltalk(message: str) -> bool:
         return False
     if message_has_explicit_date(text) or message_has_explicit_time(text):
         return False
+    # Any category answer is never smalltalk ("ok so the category is to do")
     if _parse_category_reply_safe(text):
-        # "important" alone is category, not smalltalk
-        if text in {"important", "appointment", "todo", "to do"}:
-            return False
+        return False
+    if re.search(r"\b(category|label|title|name|date|time|reminder)\b", text):
+        return False
     phrases = {
         "i am fine",
         "i'm fine",
@@ -208,11 +209,14 @@ def _is_smalltalk(message: str) -> bool:
     }
     if text in phrases:
         return True
-    if re.match(
+    m = re.match(
         r"^(yes[, ]+)?(i('m| am) )?(doing )?(fine|good|great|okay|ok|well)\b",
         text,
-    ):
-        return True
+    )
+    if m:
+        rest = text[m.end() :].strip(" .,!")
+        # "ok so the category…" must NOT count as smalltalk
+        return not rest or rest in {"thanks", "thank you", "thx"}
     return False
 
 
@@ -279,22 +283,16 @@ class AssistantService:
                 pending_event=None,
             )
 
-        # New "add reminder / create event" always starts clean — ignore stale server/client draft
-        if text and is_fresh_create_request(text):
-            clear_draft(user_id)
-            pending_event = None
-            draft = None
-        else:
-            pending_event = merge_client_pending(user_id, pending_event)
-            draft = merge_ai_into_draft(pending_event, None) if pending_event else None
-            # Preserve confirm flag (empty_draft merge can drop unknown keys via gaps)
-            if pending_event and pending_event.get("_awaiting_confirm"):
-                if draft is None:
-                    draft = dict(pending_event)
-                else:
-                    draft["_awaiting_confirm"] = True
+        # Load current draft first so soft-confirm is not wiped by "please add"
+        pending_event = merge_client_pending(user_id, pending_event)
+        draft = merge_ai_into_draft(pending_event, None) if pending_event else None
+        if pending_event and pending_event.get("_awaiting_confirm"):
+            if draft is None:
+                draft = dict(pending_event)
+            else:
+                draft["_awaiting_confirm"] = True
 
-        # Soft confirm before save (Yes button / yes / no)
+        # Soft confirm BEFORE fresh-create wipe ("yeah looks good please add…")
         if draft and not missing_fields(draft) and (confirm or _awaiting_confirm(draft)):
             gate = self._handle_confirm_gate(
                 db,
@@ -306,6 +304,14 @@ class AssistantService:
             )
             if gate is not None:
                 return gate
+
+        # New "add reminder / create event" always starts clean — ignore stale draft
+        if text and is_fresh_create_request(text):
+            clear_draft(user_id)
+            pending_event = None
+            draft = None
+        elif not draft and pending_event:
+            draft = merge_ai_into_draft(pending_event, None)
 
         if text and _is_greeting(text):
             greet = greeting_message(lang, user_id=user_id, text=text)
@@ -364,6 +370,19 @@ class AssistantService:
                 message=chatty,
                 requires_clarification=False,
             )
+
+        # Soft confirm again if still complete (after greeting/smalltalk paths unused)
+        if draft and not missing_fields(draft) and (confirm or _awaiting_confirm(draft)):
+            gate = self._handle_confirm_gate(
+                db,
+                user_id=user_id,
+                text=text or "yes",
+                draft=draft,
+                confirm=confirm,
+                language=lang,
+            )
+            if gate is not None:
+                return gate
 
         # --- Active create draft: fill next missing slot, keep asking until clear ---
         if draft and missing_fields(draft):
