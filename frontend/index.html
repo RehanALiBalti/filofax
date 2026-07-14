@@ -56,11 +56,14 @@
     }
     .layout {
       display: grid;
-      grid-template-columns: 1.45fr 0.85fr;
+      grid-template-columns: 1fr;
       gap: 0.85rem;
       flex: 1;
       min-height: 0;
       height: auto;
+      max-width: 720px;
+      margin: 0 auto;
+      width: 100%;
     }
     .panel {
       background: var(--panel);
@@ -107,20 +110,10 @@
         gap: 0.5rem;
       }
       .layout {
-        grid-template-columns: 1fr;
-        grid-template-rows: minmax(0, 1fr) auto;
-        height: auto;
-        flex: 1;
         gap: 0.5rem;
       }
       .panel.chat-panel {
         min-height: 0;
-        border-radius: 1rem;
-      }
-      .panel.events-panel {
-        height: auto;
-        max-height: 32dvh;
-        min-height: 7.5rem;
         border-radius: 1rem;
       }
       .bubble { max-width: 94%; }
@@ -151,14 +144,8 @@
       .composer-input-wrap {
         min-height: 2.55rem;
       }
-      #events {
-        padding: 0.55rem 0.65rem;
-      }
     }
     @media (max-width: 420px) {
-      .panel.events-panel {
-        max-height: 26dvh;
-      }
       .confirm-actions button {
         flex: 1 1 auto;
         text-align: center;
@@ -507,24 +494,6 @@
       font-size: 0.8rem;
       color: var(--muted);
     }
-    #events {
-      flex: 1;
-      min-height: 0;
-      padding: 0.75rem 1rem 1rem;
-      overflow-y: auto;
-      -webkit-overflow-scrolling: touch;
-      display: flex;
-      flex-direction: column;
-      gap: 0.65rem;
-    }
-    .event {
-      padding: 0.75rem 0.85rem;
-      border-radius: 0.8rem;
-      background: #fff;
-      border: 1px solid var(--line);
-    }
-    .event strong { display: block; margin-bottom: 0.2rem; }
-    .event span { color: var(--muted); font-size: 0.85rem; }
     .empty { color: var(--muted); font-size: 0.9rem; padding: 0.5rem; }
     .panel-head {
       display: flex;
@@ -639,11 +608,6 @@
           </div>
         </form>
       </section>
-
-      <section class="panel events-panel">
-        <h2>Reminders</h2>
-        <div id="events"><div class="empty">No reminders yet.</div></div>
-      </section>
     </div>
   </div>
 
@@ -657,7 +621,6 @@
     let pendingEvent = null;
 
     const logEl = document.getElementById("log");
-    const eventsEl = document.getElementById("events");
     const form = document.getElementById("chatForm");
     const input = document.getElementById("message");
     const sendBtn = document.getElementById("sendBtn");
@@ -1398,7 +1361,7 @@
         setPending(null);
         setConfirmUi(false);
         setPlaceholder("default");
-        return refreshEvents();
+        return Promise.resolve();
       }
       if (data.intent === "search_events") {
         if (data.events?.length) {
@@ -1420,21 +1383,6 @@
         setPending(mergePending(pendingEvent, data.pending_event || pendingEvent));
       }
       return Promise.resolve();
-    }
-
-    async function refreshEvents() {
-      const res = await fetch(`${API}/api/events?user_id=${encodeURIComponent(userId)}`);
-      const data = await res.json();
-      if (!data.length) {
-        eventsEl.innerHTML = '<div class="empty">No events yet.</div>';
-        return;
-      }
-      eventsEl.innerHTML = data.map((e) => `
-        <div class="event">
-          <strong>${escapeHtml(e.label)}</strong>
-          <span>${e.event_date}${e.event_time ? " · " + String(e.event_time).slice(0,5) : ""} · ${escapeHtml(e.category)}</span>
-        </div>
-      `).join("");
     }
 
     function escapeHtml(s) {
@@ -1690,7 +1638,6 @@
         addBubble(msg, "bot");
         addBubble(WELCOME_MSG, "bot");
         speakText(`${msg} ${WELCOME_MSG}`, { isWelcome: true });
-        await refreshEvents();
       } catch (err) {
         hideTyping();
         addBubble("Clear failed: " + err.message, "bot");
@@ -1712,7 +1659,6 @@
     bindWelcomeUnlock();
     setTimeout(tryWelcomeSpeak, 500);
     checkHealth();
-    refreshEvents();
   </script>
 </body>
 </html>
