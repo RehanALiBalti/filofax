@@ -122,6 +122,14 @@ Search example: `{ "message": "Show tomorrow's appointments" }` → `events` arr
 
 Language is returned as an object, e.g. `{ "code": "ur-Latn", "name": "Roman Urdu", "is_mixed": true }`. Messages are never rejected for language.
 
+## Reminder storage (Firebase)
+
+When Firebase is configured, reminders are stored in Firestore collection **`myReminders`**.
+
+- List by URL user id: `GET /api/reminders/{userId}`
+- Env template: `deploy/firebase.env.example`
+- Without Firebase credentials, SQLite fallback is used for local/dev.
+
 ## AI rules
 
 The model must never access or mutate the database. It only returns JSON. The backend rejects invalid dates, times, and categories before any write. Unclear input asks the user to rephrase — it never claims a language is unsupported.

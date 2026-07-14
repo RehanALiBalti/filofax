@@ -49,7 +49,7 @@ class Event(Base):
 class EventOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
-    id: int
+    id: Union[int, str]
     user_id: str
     event_date: date
     event_time: Optional[time] = None

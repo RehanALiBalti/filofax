@@ -283,6 +283,29 @@
       "name": "Events CRUD",
       "item": [
         {
+          "name": "List reminders by userId (Firebase)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/reminders/{{userId}}",
+            "description": "Firestore myReminders where userId == path. Preferred for mobile."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Reminders JSON array', function () {",
+                  "  const j = pm.response.json();",
+                  "  pm.expect(j).to.be.an('array');",
+                  "  if (j.length) pm.collectionVariables.set('eventId', String(j[0].id));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
           "name": "List events",
           "request": {
             "method": "GET",

@@ -35,6 +35,8 @@ from backend.models import (
     EventUpdate,
 )
 from backend.voice import VoiceTranscriptionError, transcribe_audio_bytes, whisper_status
+from backend.firebase_app import check_firebase
+from backend import reminder_store
 
 FRONTEND_DIR = APP_ROOT / "frontend"
 
@@ -144,6 +146,11 @@ def api_index() -> dict:
                 "fields": ["audio", "user_id", "confirm", "pending_event"],
             },
             "list_events": {"method": "GET", "path": "/api/events?user_id="},
+            "list_reminders_by_user": {
+                "method": "GET",
+                "path": "/api/reminders/{userId}",
+                "note": "Firestore myReminders where userId == path",
+            },
             "search_events": {"method": "GET", "path": "/api/events/search"},
             "create_event": {"method": "POST", "path": "/api/events"},
             "get_event": {"method": "GET", "path": "/api/events/{id}"},
@@ -151,6 +158,7 @@ def api_index() -> dict:
             "delete_event": {"method": "DELETE", "path": "/api/events/{id}"},
             "clear_events": {"method": "DELETE", "path": "/api/events?user_id="},
         },
+        "storage": check_firebase(),
         "chat_response_fields": [
             "ok",
             "intent",
@@ -185,6 +193,8 @@ def health() -> dict:
         "voice": whisper_status(),
         "ollama": runtime,
         "ai": runtime,
+        "firebase": check_firebase(),
+        "reminders_collection": reminder_store.collection_name(),
     }
 
 
@@ -247,12 +257,21 @@ async def assistant_voice(
     return result.model_copy(update={"transcript": transcript, "input_mode": "voice"})
 
 
+@app.get("/api/reminders/{user_id}", response_model=list[EventOut], tags=["Reminders"])
+def list_reminders_by_user(
+    user_id: str,
+    db: Session = Depends(get_db),
+) -> list[EventOut]:
+    """Get this user's reminders from Firestore `myReminders` (userId == path)."""
+    return [EventOut.model_validate(e) for e in event_service.list_events(db, user_id)]
+
+
 @app.get("/api/events", response_model=list[EventOut], tags=["Events"])
 def list_events(
     user_id: str = Query(DEFAULT_USER_ID),
     db: Session = Depends(get_db),
 ) -> list[EventOut]:
-    """List all events for a user (JSON array)."""
+    """List all events/reminders for a user (JSON array). Prefer `/api/reminders/{userId}`."""
     return [EventOut.model_validate(e) for e in event_service.list_events(db, user_id)]
 
 
@@ -297,7 +316,7 @@ def create_event(body: EventCreate, db: Session = Depends(get_db)) -> EventOut:
 
 @app.get("/api/events/{event_id}", response_model=EventOut, tags=["Events"])
 def get_event(
-    event_id: int,
+    event_id: str,
     user_id: str = Query(DEFAULT_USER_ID),
     db: Session = Depends(get_db),
 ) -> EventOut:
@@ -309,7 +328,7 @@ def get_event(
 
 @app.patch("/api/events/{event_id}", response_model=EventOut, tags=["Events"])
 def update_event(
-    event_id: int,
+    event_id: str,
     body: EventUpdate,
     user_id: str = Query(DEFAULT_USER_ID),
     db: Session = Depends(get_db),
@@ -340,7 +359,7 @@ def delete_all_events(
 
 @app.delete("/api/events/{event_id}", status_code=200, tags=["Events"])
 def delete_event(
-    event_id: int,
+    event_id: str,
     user_id: str = Query(DEFAULT_USER_ID),
     db: Session = Depends(get_db),
 ) -> dict:
@@ -350,3 +369,20 @@ def delete_event(
         raise HTTPException(status_code=404, detail="Event not found")
     event_service.delete_event(db, event)
     return {"ok": True, "deleted": event_id}
+
+
+@app.delete(
+    "/api/reminders/{user_id}/{reminder_id}",
+    status_code=200,
+    tags=["Reminders"],
+)
+def delete_reminder_for_user(
+    user_id: str,
+    reminder_id: str,
+    db: Session = Depends(get_db),
+) -> dict:
+    event = event_service.get_event(db, reminder_id, user_id)
+    if not event:
+        raise HTTPException(status_code=404, detail="Reminder not found")
+    event_service.delete_event(db, event)
+    return {"ok": True, "deleted": reminder_id}

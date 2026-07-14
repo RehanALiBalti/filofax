@@ -69,19 +69,35 @@ POST /api/assistant/chat
 
 5. Use a stable `user_id` per logged-in app user (never share `"default"` in production).
 
-## Events CRUD
+## Reminders (Firebase `myReminders`)
+
+Primary list by user id in the URL:
+
+```http
+GET /api/reminders/{userId}
+```
+
+Example: `GET /api/reminders/abc123FirebaseUid`  
+→ only documents in Firestore collection **`myReminders`** where **`userId == abc123FirebaseUid`**.
+
+Chat save (`POST /api/assistant/chat` confirm) and `POST /api/events` also write into `myReminders` when Firebase env is configured.
 
 | Method | Path | Notes |
 |--------|------|--------|
-| GET | `/api/events?user_id=` | JSON array |
+| GET | `/api/reminders/{userId}` | User's reminders (preferred) |
+| GET | `/api/events?user_id=` | Same list (legacy query style) |
 | GET | `/api/events/search?...` | Filters |
-| POST | `/api/events` | Direct create |
-| GET | `/api/events/{id}?user_id=` | One event |
+| POST | `/api/events` | Direct create → Firestore |
+| GET | `/api/events/{id}?user_id=` | One reminder |
 | PATCH | `/api/events/{id}?user_id=` | Partial update |
 | DELETE | `/api/events/{id}?user_id=` | `{ "ok": true, "deleted": id }` |
+| DELETE | `/api/reminders/{userId}/{id}` | Delete for that user |
 | DELETE | `/api/events?user_id=` | Clear all + draft |
 
 Categories: `To Do` · `Appointment` · `Important`
+
+Without Firebase credentials, the API falls back to local SQLite (dev only).
+
 
 ## Errors (JSON)
 
