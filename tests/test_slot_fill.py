@@ -125,6 +125,30 @@ def test_extract_label_card_check_from_sentence():
     assert _extract_label("call it Team Sync") == "Team Sync"
     assert _extract_label("card check") == "Card Check"
 
+
+def test_extract_label_stops_before_schedule_chatter():
+    from backend.slot_fill import _extract_label, enrich_draft_from_message, empty_draft
+    from datetime import date
+
+    msg = (
+        "my event name is Pakistan and it will be start on Monday "
+        "Monday this week of Monday and time will be 9:00 p.m."
+    )
+    assert _extract_label(msg) == "Pakistan"
+
+    today = date(2026, 7, 14)  # Tuesday — "Monday this week" → 2026-07-13
+    out = enrich_draft_from_message(empty_draft(), msg, today=today)
+    assert out["label"] == "Pakistan"
+    assert out["time"] == "21:00"
+
+
+def test_extract_label_natural_variants():
+    from backend.slot_fill import _extract_label
+
+    assert _extract_label("reminder for dentist tomorrow at 4pm") == "Dentist"
+    assert _extract_label("naam hai Bill Payment aur kal 5 baje") == "Bill Payment"
+    assert _extract_label("about the visa interview on Friday") == "Visa Interview"
+
     draft = {
         "date": "2026-11-12",
         "time": "12:00",

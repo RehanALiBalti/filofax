@@ -497,9 +497,18 @@ def message_has_explicit_label(text: str) -> bool:
         return True
     if re.search(r"(?:my\s+)?(?:level\s+|event\s+|reminder\s+)?name\s+(?:will\s+be|is|:)\s*\S+", lower):
         return True
+    if re.search(r"(?:event|reminder)\s+name\s+(?:will\s+be|is|:)\s*\S+", lower):
+        return True
     if re.search(r"\bas\s+(?:a|an)\s+\S+", lower):
         return True
     if re.search(r"(?:name\s+it|call\s+it|titled|named)\s+\S+", lower):
+        return True
+    # Natural / Urdu-Roman cues
+    if re.search(r"\b(?:naam|title|label)\s*(?:hai|he|:|=)\s*\S+", lower):
+        return True
+    if re.search(r"\b(?:reminder|event|meeting)\s+for\s+(?!me\b|you\b|us\b|please\b)\S+", lower):
+        return True
+    if re.search(r"\b(?:about|regarding)\s+(?:the\s+)?(?!me\b|you\b|it\b)\S+", lower):
         return True
     return False
 
@@ -507,10 +516,37 @@ def message_has_explicit_label(text: str) -> bool:
 _LABEL_TAIL_SPLIT = re.compile(
     r"\s+and\s+(?:the\s+)?(?:reminder\s+)?(?:date|time|category|label|title)\b"
     r"|\s+and\s+the\s+reminder\b"
+    r"|\s+and\s+(?:it\s+)?(?:will\s+)?(?:be\s+)?(?:start|starts|starting|begin|begins|held)\b"
+    r"|\s+and\s+it\s+will\b"
+    r"|\s+and\s+(?:the\s+)?time\b"
+    r"|\s+start(?:s|ing)?\s+on\b"
+    r"|\s+will\s+(?:be\s+)?(?:start|starts|starting|begin|begins)\b"
+    r"|\s+on\s+(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|"
+    r"fri(?:day)?|sat(?:urday)?|sun(?:day)?|today|tomorrow)\b"
+    r"|\s+this\s+(?:week|monday|coming)\b"
+    r"|\s+(?:tomorrow|today|kal|aaj)\b"
+    r"|\s+aur\b"
+    r"|\s+(?:at|@)\s*\d{1,2}(?::\d{2})?\s*(?:a\.?m\.?|p\.?m\.?)?\b"
     r"|\s+on\s+\d{1,2}\b"
     r"|\s+for\s+\d{1,2}\b"
     r"|[.,;]",
     flags=re.IGNORECASE,
+)
+
+# Stop capturing the title once schedule chatter begins
+_LABEL_STOP_LOOKAHEAD = (
+    r"(?=\s+and\s+(?:the\s+)?(?:reminder\s+)?(?:date|time|category|label|title)\b"
+    r"|\s+and\s+(?:it\s+)?(?:will\s+)?(?:be\s+)?(?:start|starts|starting|begin|begins|held)\b"
+    r"|\s+and\s+it\s+will\b"
+    r"|\s+and\s+(?:the\s+)?time\b"
+    r"|\s+start(?:s|ing)?\s+on\b"
+    r"|\s+on\s+(?:mon(?:day)?|tue(?:sday)?|wed(?:nesday)?|thu(?:rsday)?|"
+    r"fri(?:day)?|sat(?:urday)?|sun(?:day)?|today|tomorrow)\b"
+    r"|\s+this\s+(?:week|monday|coming)\b"
+    r"|\s+(?:tomorrow|today|kal|aaj)\b"
+    r"|\s+aur\b"
+    r"|\s+(?:at|@)\s*\d"
+    r"|$)"
 )
 
 
@@ -524,7 +560,21 @@ def _clean_label(raw: str) -> str | None:
         return None
     if len(s) > 255:
         s = s[:255].rstrip()
-    if s.lower() in {"to do", "todo", "appointment", "important", "event", "reminder"}:
+    if s.lower() in {
+        "to do",
+        "todo",
+        "appointment",
+        "important",
+        "event",
+        "reminder",
+        "me",
+        "you",
+        "us",
+        "please",
+        "it",
+        "this",
+        "that",
+    }:
         return None
     # Keep labels reasonably short (STT dumps get truncated)
     words = s.split()
@@ -542,12 +592,17 @@ def _extract_label(text: str) -> str | None:
     if not t:
         return None
 
+    stop = _LABEL_STOP_LOOKAHEAD
     # Last successful cue wins (user often corrects mid-sentence).
     patterns = [
-        r"(?:label|title)\s+(?:will\s+be|is|:)\s*(.+?)(?=\s+and\s+(?:the\s+)?(?:reminder\s+)?(?:date|time|category|label)\b|$)",
-        r"(?:my\s+)?(?:level\s+|event\s+|reminder\s+)?name\s+(?:will\s+be|is|:)\s*(.+?)(?=\s+and\s+(?:the\s+)?(?:reminder\s+)?(?:date|time|category|label)\b|$)",
-        r"(?:name\s+it|call\s+it|titled|named)\s+(.+?)(?=\s+and\s+(?:the\s+)?(?:reminder\s+)?(?:date|time|category|label)\b|$)",
-        r"\bas\s+(?:a|an)\s+(.+?)(?=\s+and\s+(?:the\s+)?(?:reminder\s+)?(?:date|time|category|label)\b|$)",
+        rf"(?:label|title)\s+(?:will\s+be|is|:)\s*(.+?){stop}",
+        rf"(?:my\s+)?(?:level\s+|event\s+|reminder\s+)?name\s+(?:will\s+be|is|:)\s*(.+?){stop}",
+        rf"(?:event|reminder)\s+name\s+(?:will\s+be|is|:)\s*(.+?){stop}",
+        rf"(?:name\s+it|call\s+it|titled|named)\s+(.+?){stop}",
+        rf"\bas\s+(?:a|an)\s+(.+?){stop}",
+        rf"\b(?:naam|title|label)\s*(?:hai|he|:|=)\s*(.+?){stop}",
+        rf"\b(?:reminder|event|meeting)\s+for\s+(.+?){stop}",
+        rf"\b(?:about|regarding)\s+(?:the\s+)?(.+?){stop}",
         r"(?:enable|set|save|make)\s+(?:this\s+)?(?:event|reminder)?\s*as\s+(?:a|an)\s+(.+)$",
         r"(?:label|title)\s+(?:should\s+be|to)\s+(.+)$",
     ]
