@@ -6,49 +6,58 @@
   <title>Filofax AI Event Assistant</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,600;0,9..144,700;1,9..144,500&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <style>
     :root {
-      --ink: #1a2332;
-      --muted: #5c6b7a;
-      --paper: #f3efe6;
-      --panel: rgba(255, 252, 246, 0.88);
-      --line: rgba(26, 35, 50, 0.12);
-      --accent: #0f6e56;
-      --accent-soft: #d8efe6;
+      --ink: #15231c;
+      --muted: #5a6b62;
+      --paper: #eef3ee;
+      --panel: rgba(250, 252, 249, 0.92);
+      --line: rgba(21, 35, 28, 0.1);
+      --accent: #0b6b4f;
+      --accent-deep: #084f3b;
+      --accent-soft: #d4ebe1;
+      --user-bubble: linear-gradient(145deg, #0d7a5a 0%, #0b6b4f 55%, #095c44 100%);
+      --bot-sheet: #ffffff;
       --warn: #8a4b12;
       --danger: #8b2e2e;
-      --shadow: 0 18px 50px rgba(26, 35, 50, 0.12);
+      --shadow: 0 20px 48px rgba(21, 35, 28, 0.1);
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
       min-height: 100vh;
-      font-family: "DM Sans", sans-serif;
+      font-family: "Outfit", sans-serif;
       color: var(--ink);
       background:
-        radial-gradient(ellipse 80% 50% at 10% -10%, #cfe8dc 0%, transparent 55%),
-        radial-gradient(ellipse 60% 40% at 100% 0%, #e8dcc8 0%, transparent 50%),
-        linear-gradient(165deg, #ebe4d6 0%, var(--paper) 45%, #e2ebe7 100%);
+        radial-gradient(ellipse 70% 45% at 8% -5%, #b8dccb 0%, transparent 52%),
+        radial-gradient(ellipse 55% 38% at 96% 4%, #d5e2d0 0%, transparent 48%),
+        linear-gradient(168deg, #e4ece6 0%, var(--paper) 42%, #dde8e2 100%);
     }
     .shell {
-      max-width: 920px;
+      max-width: 960px;
       margin: 0 auto;
-      padding: 2rem 1.25rem 3rem;
+      padding: 1.75rem 1.25rem 3rem;
       display: grid;
-      gap: 1.25rem;
+      gap: 1.15rem;
     }
     header h1 {
       font-family: "Fraunces", serif;
-      font-size: clamp(1.8rem, 4vw, 2.6rem);
-      margin: 0 0 0.35rem;
-      letter-spacing: -0.02em;
+      font-size: clamp(2rem, 4.5vw, 2.85rem);
+      margin: 0 0 0.3rem;
+      letter-spacing: -0.03em;
+      font-style: italic;
+      background: linear-gradient(120deg, var(--ink) 20%, var(--accent-deep) 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
     }
     header p {
       margin: 0;
       color: var(--muted);
-      max-width: 36rem;
-      line-height: 1.5;
+      max-width: 34rem;
+      line-height: 1.55;
+      font-size: 0.98rem;
     }
     .status {
       display: inline-flex;
@@ -64,10 +73,10 @@
       border-radius: 50%;
       background: #b45309;
     }
-    .dot.ok { background: var(--accent); }
+    .dot.ok { background: var(--accent); box-shadow: 0 0 0 3px rgba(11, 107, 79, 0.18); }
     .layout {
       display: grid;
-      grid-template-columns: 1.4fr 0.9fr;
+      grid-template-columns: 1.45fr 0.85fr;
       gap: 1rem;
     }
     @media (max-width: 800px) {
@@ -76,13 +85,16 @@
     .panel {
       background: var(--panel);
       border: 1px solid var(--line);
-      border-radius: 1.1rem;
+      border-radius: 1.25rem;
       box-shadow: var(--shadow);
-      backdrop-filter: blur(10px);
+      backdrop-filter: blur(12px);
       overflow: hidden;
       display: flex;
       flex-direction: column;
-      min-height: 520px;
+      min-height: 540px;
+    }
+    .panel.chat-panel {
+      background: linear-gradient(180deg, rgba(255,255,255,0.55) 0%, transparent 28%), var(--panel);
     }
     .panel h2 {
       margin: 0;
@@ -96,28 +108,39 @@
     #log {
       flex: 1;
       overflow-y: auto;
-      padding: 1rem;
+      padding: 1.05rem 1rem 1.2rem;
       display: flex;
       flex-direction: column;
-      gap: 0.75rem;
+      gap: 0.85rem;
+      background: repeating-linear-gradient(transparent, transparent 27px, rgba(11, 107, 79, 0.035) 28px);
+      scroll-behavior: smooth;
     }
     .bubble {
-      max-width: 92%;
-      padding: 0.75rem 0.9rem;
-      border-radius: 0.9rem;
-      line-height: 1.45;
+      max-width: 88%;
+      padding: 0.8rem 0.95rem;
+      border-radius: 1.05rem;
+      line-height: 1.5;
       white-space: pre-wrap;
       font-size: 0.95rem;
+      animation: bubbleIn 0.38s cubic-bezier(0.22, 1, 0.36, 1) both;
+    }
+    @keyframes bubbleIn {
+      from { opacity: 0; transform: translateY(10px) scale(0.98); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
     }
     .bubble.user {
       align-self: flex-end;
-      background: var(--accent);
-      color: #f7fffb;
+      background: var(--user-bubble);
+      color: #f4fffa;
+      border-bottom-right-radius: 0.3rem;
+      box-shadow: 0 8px 22px rgba(11, 107, 79, 0.22);
     }
     .bubble.bot {
       align-self: flex-start;
-      background: #fff;
-      border: 1px solid var(--line);
+      background: var(--bot-sheet);
+      border: 1px solid rgba(21, 35, 28, 0.08);
+      border-bottom-left-radius: 0.3rem;
+      box-shadow: 0 6px 18px rgba(21, 35, 28, 0.05);
     }
     .bubble.bot.has-play {
       display: flex;
@@ -125,10 +148,24 @@
       gap: 0.55rem;
       padding-right: 0.55rem;
     }
-    .bubble-text {
-      flex: 1;
-      min-width: 0;
+    .bubble-avatar {
+      flex-shrink: 0;
+      width: 1.7rem;
+      height: 1.7rem;
+      border-radius: 50%;
+      background: linear-gradient(145deg, #1a4d3c, var(--accent));
+      color: #e8fff5;
+      font-family: "Fraunces", serif;
+      font-size: 0.72rem;
+      font-weight: 700;
+      font-style: italic;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      margin-top: 0.12rem;
+      box-shadow: 0 2px 8px rgba(11, 107, 79, 0.25);
     }
+    .bubble-text { flex: 1; min-width: 0; }
     .bubble-play {
       flex-shrink: 0;
       width: 2rem;
@@ -146,7 +183,7 @@
       margin-top: 0.1rem;
       transition: background 0.15s ease, transform 0.12s ease;
     }
-    .bubble-play:hover { background: #c5e6d9; }
+    .bubble-play:hover { background: #c5e6d9; transform: scale(1.05); }
     .bubble-play:active { transform: scale(0.92); }
     .bubble-play.playing {
       background: var(--accent);
@@ -163,11 +200,13 @@
       background: transparent;
       border: none;
       padding: 0 0.2rem;
+      box-shadow: none;
+      animation: none;
     }
     .composer {
       border-top: 1px solid var(--line);
-      background: #e8e4dc;
-      padding: 0.55rem 0.65rem;
+      background: linear-gradient(180deg, #e6ebe6 0%, #dde5df 100%);
+      padding: 0.55rem 0.65rem 0.7rem;
     }
     .composer-row {
       display: flex;
@@ -182,9 +221,15 @@
       align-items: center;
       background: #fff;
       border-radius: 1.5rem;
-      border: 1px solid rgba(26, 35, 50, 0.08);
+      border: 1px solid rgba(21, 35, 28, 0.1);
       padding: 0.15rem 0.85rem;
-      min-height: 2.65rem;
+      min-height: 2.7rem;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.8), 0 4px 14px rgba(21, 35, 28, 0.04);
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .composer-input-wrap:focus-within {
+      border-color: rgba(11, 107, 79, 0.35);
+      box-shadow: 0 0 0 3px rgba(11, 107, 79, 0.12);
     }
     .composer-input-wrap input[type="text"] {
       flex: 1;
@@ -201,46 +246,55 @@
       gap: 0.5rem;
       padding: 0.45rem 0.85rem 0.15rem;
       flex-wrap: wrap;
+      animation: bubbleIn 0.3s ease both;
     }
     .confirm-actions[hidden] { display: none !important; }
     .confirm-actions button {
       border: 0;
       border-radius: 999px;
-      padding: 0.45rem 1rem;
+      padding: 0.5rem 1.15rem;
       font: inherit;
       font-size: 0.9rem;
+      font-weight: 600;
       cursor: pointer;
+      transition: transform 0.12s ease, box-shadow 0.15s ease;
     }
+    .confirm-actions button:hover { transform: translateY(-1px); }
     .confirm-actions .yes {
-      background: var(--ink, #1a2332);
+      background: var(--user-bubble);
       color: #fff;
+      box-shadow: 0 6px 16px rgba(11, 107, 79, 0.25);
     }
     .confirm-actions .no {
       background: #fff;
-      color: var(--ink, #1a2332);
-      border: 1px solid rgba(26, 35, 50, 0.15);
+      color: var(--ink);
+      border: 1px solid rgba(21, 35, 28, 0.14);
     }
     .slot-chips {
       display: flex;
       flex-wrap: wrap;
       gap: 0.4rem;
-      padding: 0.35rem 0.85rem 0.2rem;
+      padding: 0.35rem 0.85rem 0.25rem;
+      animation: bubbleIn 0.32s ease both;
     }
     .slot-chips[hidden] { display: none !important; }
     .slot-chips button {
-      border: 1px solid rgba(26, 35, 50, 0.14);
+      border: 1px solid rgba(21, 35, 28, 0.12);
       background: #fff;
-      color: var(--ink, #1a2332);
-      border-radius: 0.55rem;
-      padding: 0.38rem 0.75rem;
+      color: var(--ink);
+      border-radius: 0.65rem;
+      padding: 0.42rem 0.8rem;
       font: inherit;
       font-size: 0.82rem;
+      font-weight: 500;
       cursor: pointer;
-      transition: background 0.12s ease, border-color 0.12s ease;
+      transition: background 0.12s ease, border-color 0.12s ease, transform 0.12s ease;
     }
     .slot-chips button:hover {
-      background: #f3f0ea;
-      border-color: rgba(26, 35, 50, 0.28);
+      background: var(--accent-soft);
+      border-color: rgba(11, 107, 79, 0.35);
+      color: var(--accent-deep);
+      transform: translateY(-1px);
     }
     .icon-btn {
       border: 0;
@@ -262,9 +316,10 @@
     .icon-btn.mic {
       background: var(--accent);
       color: #fff;
+      box-shadow: 0 6px 16px rgba(11, 107, 79, 0.28);
     }
     .icon-btn.send {
-      background: var(--accent);
+      background: var(--accent-deep);
       color: #fff;
     }
     .icon-btn.send[hidden],
@@ -278,6 +333,7 @@
       color: var(--muted);
       width: 2.5rem;
       height: 2.5rem;
+      border: 1px solid rgba(21, 35, 28, 0.12);
     }
     .icon-btn.cancel-rec:hover { color: var(--danger); }
     button.ghost {
@@ -461,14 +517,14 @@
   <div class="shell">
     <header>
       <h1>Filofax</h1>
-      <p>Bolte hi live transcript — stop dabate hi message chala jata hai (Chrome/Edge best).</p>
+      <p>A calm chat for reminders — speak or type, and I'll keep the calendar tidy with you.</p>
       <div class="status"><span class="dot" id="dot"></span><span id="health">Checking AI runtime…</span></div>
     </header>
 
     <div class="layout">
-      <section class="panel">
+      <section class="panel chat-panel">
         <div class="panel-head">
-          <h2>Assistant</h2>
+          <h2>Chat with Filofax</h2>
           <div class="panel-actions">
             <button type="button" class="tts-toggle" id="ttsBtn" title="Toggle voice replies">🔊 Voice on</button>
             <button type="button" class="clear-reminder" id="clearBtn" title="Clear chat and delete all saved reminders">
@@ -576,10 +632,10 @@
     let welcomeUnlockBound = false;
 
     const WELCOME_VARIANTS = [
-      "Hey! I'm Filofax — doing great over here. Want to add a reminder?",
-      "Hi! Hope you're well. I can help you set a reminder whenever you're ready.",
-      "Hello! I'm fine, thanks. Shall we create a reminder together?",
-      "Hey there! Nice to see you. Want me to add a reminder for you?",
+      "Hey — good to see you. Shall we capture a reminder while it's on your mind?",
+      "Hi! I'm Filofax. Drop a date, a time, or just the idea — I'll follow along.",
+      "Hello! Soft landings only. Want to add a reminder together?",
+      "Welcome. What's worth remembering today?",
     ];
     const WELCOME_MSG = WELCOME_VARIANTS[Math.floor(Math.random() * WELCOME_VARIANTS.length)];
 
@@ -927,6 +983,10 @@
 
       if (who === "bot" && !extraClass.includes("typing") && canSpeak) {
         div.classList.add("has-play");
+        const avatar = document.createElement("span");
+        avatar.className = "bubble-avatar";
+        avatar.textContent = "F";
+        avatar.setAttribute("aria-hidden", "true");
         const body = document.createElement("div");
         body.className = "bubble-text";
         body.textContent = text;
@@ -941,8 +1001,20 @@
           e.stopPropagation();
           speakText(text, { force: true, playBtn: play });
         });
+        div.appendChild(avatar);
         div.appendChild(body);
         div.appendChild(play);
+      } else if (who === "bot" && !extraClass.includes("typing")) {
+        const avatar = document.createElement("span");
+        avatar.className = "bubble-avatar";
+        avatar.textContent = "F";
+        avatar.setAttribute("aria-hidden", "true");
+        const body = document.createElement("div");
+        body.className = "bubble-text";
+        body.textContent = text;
+        div.classList.add("has-play");
+        div.appendChild(avatar);
+        div.appendChild(body);
       } else {
         div.textContent = text;
       }
