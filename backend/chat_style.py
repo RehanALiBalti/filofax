@@ -57,37 +57,53 @@ def _lang_bucket(language: LanguageInfo | None, text: str = "") -> str:
     return detect_lang_bucket("", language)
 
 
-_GREETINGS: dict[str, list[str]] = {
+# Friendly reply to "hi / how are you" — always followed by the setup opener.
+_GREETING_SOCIAL: dict[str, list[str]] = {
     "en": [
-        "Let's set up the event. What is the date and time for this event?",
-        "Let's set up the event — what's the date and time?",
-        "Ready when you are. What date and time should this event be?",
-        "Great — let's set it up. Date and time?",
+        "Hey! I'm doing great — thanks for asking.",
+        "Hi! I'm good, thanks — nice to hear from you.",
+        "Hello! I'm well, thank you.",
+        "Hey there — I'm fine, thanks!",
+        "Hi! Doing well over here.",
     ],
     "ur-Latn": [
-        "Chalen event set karte hain. Date aur time kya rakhain?",
-        "Event setup — date aur time bata dein?",
-        "Theek — date aur time kya hoga?",
+        "Assalamualaikum! Main theek hoon, shukriya.",
+        "Salam! Bilkul theek — aap?",
+        "Hey! Main achha hoon, thanks.",
     ],
     "ur": [
-        "چلیں ایونٹ سیٹ کرتے ہیں۔ تاریخ اور وقت کیا رکھیں؟",
+        "وعلیکم السلام! میں ٹھیک ہوں، شکریہ۔",
     ],
     "hi-Latn": [
-        "Chaliye event set karte hain. Date aur time kya rakhein?",
+        "Namaste! Main theek hoon, dhanyavad.",
+        "Hey! Main accha hoon, thanks.",
     ],
     "hi": [
-        "चलिए इवेंट सेट करते हैं। तारीख और समय क्या रखें?",
+        "नमस्ते! मैं ठीक हूँ, धन्यवाद।",
     ],
+}
+
+_SETUP_OPENER: dict[str, str] = {
+    "en": "Let's set up the event. What is the date and time for this event?",
+    "ur-Latn": "Chalen event set karte hain. Date aur time kya rakhain?",
+    "ur": "چلیں ایونٹ سیٹ کرتے ہیں۔ تاریخ اور وقت کیا رکھیں؟",
+    "hi-Latn": "Chaliye event set karte hain. Date aur time kya rakhein?",
+    "hi": "चलिए इवेंट सेट करते हैं। तारीख और समय क्या रखें?",
+}
+
+_GREETINGS: dict[str, list[str]] = {
+    bucket: [f"{s} {_SETUP_OPENER.get(bucket, _SETUP_OPENER['en'])}" for s in socials]
+    for bucket, socials in _GREETING_SOCIAL.items()
 }
 
 _SMALLTALK: dict[str, list[str]] = {
     "en": [
-        "Nice. Let's set up the event — date and time?",
-        "Awesome. What date and time should this be?",
-        "Cool — ready to set it up. Date and time?",
+        "Nice to hear! Let's set up the event. What is the date and time for this event?",
+        "Awesome. Let's set up the event — what's the date and time?",
+        "Cool — let's get into it. Date and time for this event?",
     ],
     "ur-Latn": [
-        "Achha! Event set karte hain — date aur time?",
+        "Achha sun ke khushi hui! Chalen event set karte hain — date aur time?",
         "Zabardast. Date aur time bata dein?",
     ],
     "ur": [
@@ -447,12 +463,12 @@ def greeting_message(
     user_id: str = "default",
     text: str = "",
 ) -> str:
+    """Answer hello / how-are-you, then invite event setup."""
     bucket = _lang_bucket(language, text)
-    # Prefer the clear setup opener for English
-    if bucket == "en":
-        return "Let's set up the event. What is the date and time for this event?"
-    opts = _GREETINGS.get(bucket) or _GREETINGS["en"]
-    return _pick(opts, user_id=user_id)
+    socials = _GREETING_SOCIAL.get(bucket) or _GREETING_SOCIAL["en"]
+    social = _pick(socials, user_id=user_id, salt="greet-social")
+    opener = _SETUP_OPENER.get(bucket) or _SETUP_OPENER["en"]
+    return f"{social} {opener}"
 
 
 def smalltalk_message(

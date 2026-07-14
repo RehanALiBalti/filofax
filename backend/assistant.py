@@ -119,6 +119,9 @@ def _normalize_greeting_text(message: str) -> str:
     text = message.strip().lower()
     text = text.replace("’", "'")
     text = re.sub(r"[.!?,;:]+", " ", text)
+    # Strip accidental trailing letter stuck to "you" (e.g. "how are youF")
+    text = re.sub(r"\b(you|u)[a-z]\b", r"\1", text)
+    text = re.sub(r"[^a-z0-9\s']+", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
     return text
 
@@ -322,24 +325,33 @@ class AssistantService:
                     if nxt
                     else ""
                 )
+                # Avoid repeating the same date/time opener twice
+                combined = greet if ask and ask in greet else f"{greet} {ask}".strip()
                 save_draft(user_id, draft)
                 return AssistantResponse(
                     ok=True,
                     intent="create_event",
                     language=lang,
                     confidence=1.0,
-                    message=f"{greet} {ask}".strip(),
+                    message=combined,
                     missing_fields=missing_fields(draft),
                     requires_clarification=True,
                     pending_event=draft,
+                    suggested_replies=suggested_replies_for(nxt or "date"),
                 )
+            # Greeting alone → reply socially, then start event draft
+            draft = empty_draft()
+            save_draft(user_id, draft)
             return AssistantResponse(
                 ok=True,
-                intent="greeting",
+                intent="create_event",
                 language=lang,
                 confidence=1.0,
                 message=greet,
-                requires_clarification=False,
+                missing_fields=missing_fields(draft),
+                requires_clarification=True,
+                pending_event=draft,
+                suggested_replies=suggested_replies_for("date"),
             )
 
         if text and _is_smalltalk(text):
@@ -351,24 +363,31 @@ class AssistantService:
                     if nxt
                     else ""
                 )
+                combined = chatty if ask and ask in chatty else f"{chatty} {ask}".strip()
                 save_draft(user_id, draft)
                 return AssistantResponse(
                     ok=True,
                     intent="create_event",
                     language=lang,
                     confidence=1.0,
-                    message=f"{chatty} {ask}".strip(),
+                    message=combined,
                     missing_fields=missing_fields(draft),
                     requires_clarification=True,
                     pending_event=draft,
+                    suggested_replies=suggested_replies_for(nxt or "date"),
                 )
+            draft = empty_draft()
+            save_draft(user_id, draft)
             return AssistantResponse(
                 ok=True,
-                intent="greeting",
+                intent="create_event",
                 language=lang,
                 confidence=1.0,
                 message=chatty,
-                requires_clarification=False,
+                missing_fields=missing_fields(draft),
+                requires_clarification=True,
+                pending_event=draft,
+                suggested_replies=suggested_replies_for("date"),
             )
 
         # Soft confirm again if still complete (after greeting/smalltalk paths unused)

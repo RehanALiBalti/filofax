@@ -44,6 +44,33 @@ def test_greeting_anti_repeat_does_not_crash():
     b = greeting_message(lang, user_id="style-a")
     assert a and b
     assert isinstance(a, str)
+    setup = "Let's set up the event"
+    assert setup in a
+    assert a.lower().startswith(("hey", "hi", "hello"))
+    assert a.index(setup) > 0
+
+
+def test_hello_how_are_you_gets_social_then_setup():
+    from backend.assistant import _is_greeting
+
+    assert _is_greeting("Hello how are you")
+    assert _is_greeting("Hello how are youF")
+
+    user = "test-greet-social"
+    _cleanup(user)
+    svc = AssistantService(ai=None)
+    db = SessionLocal()
+    try:
+        out = svc.handle_chat(db, message="Hello how are you", user_id=user)
+        assert out.ok
+        assert "Let's set up the event" in out.message
+        assert out.message.strip().lower().startswith(("hey", "hi", "hello"))
+        assert out.requires_clarification
+        assert out.pending_event is not None
+        assert "date" in (out.missing_fields or [])
+    finally:
+        db.close()
+        _cleanup(user)
 
 
 def test_offer_confirm_then_yes_saves():
