@@ -1,94 +1,419 @@
 {
   "info": {
-    "name": "Filofax AI Event Assistant",
-    "description": "Local Ollama-powered create/search assistant",
+    "_postman_id": "filofax-mobile-api-2026",
+    "name": "Filofax Mobile REST API",
+    "description": "JSON REST API for Android / iOS Filofax apps.\n\n**Flow:** Chat → echo `pending_event` each turn → confirm save → list events.\n\nImport this collection + an environment (`Filofax Local` or `Filofax Production`).\nInteractive docs: `{{baseUrl}}/api/docs`",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
     { "key": "baseUrl", "value": "http://127.0.0.1:8002" },
-    { "key": "userId", "value": "default" }
+    { "key": "userId", "value": "app-user-001" },
+    { "key": "pendingEvent", "value": "null" },
+    { "key": "eventId", "value": "1" }
+  ],
+  "event": [
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "if (pm.response.code >= 200 && pm.response.code < 300) {",
+          "  try {",
+          "    const j = pm.response.json();",
+          "    if (j && Object.prototype.hasOwnProperty.call(j, 'pending_event')) {",
+          "      pm.collectionVariables.set('pendingEvent', j.pending_event ? JSON.stringify(j.pending_event) : 'null');",
+          "    }",
+          "    if (j && j.event && j.event.id) {",
+          "      pm.collectionVariables.set('eventId', String(j.event.id));",
+          "    }",
+          "  } catch (e) {}",
+          "}"
+        ]
+      }
+    }
   ],
   "item": [
     {
-      "name": "Health",
-      "request": {
-        "method": "GET",
-        "url": "{{baseUrl}}/api/health"
-      }
-    },
-    {
-      "name": "Assistant — Create event",
-      "request": {
-        "method": "POST",
-        "header": [{ "key": "Content-Type", "value": "application/json" }],
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"user_id\": \"{{userId}}\",\n  \"message\": \"Add a doctor appointment tomorrow at 4 PM\"\n}"
+      "name": "Meta",
+      "item": [
+        {
+          "name": "API Index",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api",
+            "description": "Lists all mobile endpoints and chat response fields (JSON)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('API index ok', function () {",
+                  "  const j = pm.response.json();",
+                  "  pm.expect(j.ok).to.eql(true);",
+                  "  pm.expect(j.endpoints.chat).to.be.ok;",
+                  "});"
+                ]
+              }
+            }
+          ]
         },
-        "url": "{{baseUrl}}/api/assistant/chat"
-      }
+        {
+          "name": "Health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/health",
+            "description": "Service + AI + Whisper status."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Health ok', function () {",
+                  "  pm.expect(pm.response.json().ok).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
     },
     {
-      "name": "Assistant — Confirm create",
-      "request": {
-        "method": "POST",
-        "header": [{ "key": "Content-Type", "value": "application/json" }],
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"user_id\": \"{{userId}}\",\n  \"message\": \"yes\",\n  \"confirm\": true,\n  \"pending_event\": {\n    \"date\": \"2026-07-11\",\n    \"time\": \"16:00\",\n    \"label\": \"Doctor Appointment\",\n    \"category\": \"Appointment\",\n    \"notes\": null\n  }\n}"
+      "name": "Assistant Chat (JSON)",
+      "item": [
+        {
+          "name": "01 Greeting",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{userId}}\",\n  \"message\": \"Hello how are you\",\n  \"confirm\": false,\n  \"pending_event\": null\n}"
+            },
+            "url": "{{baseUrl}}/api/assistant/chat",
+            "description": "Social greeting then event setup ask. Saves `pending_event` into collection var."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('JSON chat reply', function () {",
+                  "  const j = pm.response.json();",
+                  "  pm.expect(j.ok).to.eql(true);",
+                  "  pm.expect(j.message).to.be.a('string');",
+                  "  pm.expect(j).to.have.property('suggested_replies');",
+                  "});"
+                ]
+              }
+            }
+          ]
         },
-        "url": "{{baseUrl}}/api/assistant/chat"
-      }
-    },
-    {
-      "name": "Assistant — Search",
-      "request": {
-        "method": "POST",
-        "header": [{ "key": "Content-Type", "value": "application/json" }],
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"user_id\": \"{{userId}}\",\n  \"message\": \"Show tomorrow's appointments\"\n}"
+        {
+          "name": "02 Date + time",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{userId}}\",\n  \"message\": \"Tomorrow at 5:00 PM\",\n  \"confirm\": false,\n  \"pending_event\": {{pendingEvent}}\n}"
+            },
+            "url": "{{baseUrl}}/api/assistant/chat",
+            "description": "Uses collection `pendingEvent` from previous chat response."
+          }
         },
-        "url": "{{baseUrl}}/api/assistant/chat"
-      }
-    },
-    {
-      "name": "Assistant — Roman Urdu",
-      "request": {
-        "method": "POST",
-        "header": [{ "key": "Content-Type", "value": "application/json" }],
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"user_id\": \"{{userId}}\",\n  \"message\": \"Kal 4 baje dentist ki appointment add kar do\"\n}"
+        {
+          "name": "03 Category",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{userId}}\",\n  \"message\": \"Appointment\",\n  \"confirm\": false,\n  \"pending_event\": {{pendingEvent}}\n}"
+            },
+            "url": "{{baseUrl}}/api/assistant/chat"
+          }
         },
-        "url": "{{baseUrl}}/api/assistant/chat"
-      }
-    },
-    {
-      "name": "Assistant — Multilingual (Spanish)",
-      "request": {
-        "method": "POST",
-        "header": [{ "key": "Content-Type", "value": "application/json" }],
-        "body": {
-          "mode": "raw",
-          "raw": "{\n  \"user_id\": \"{{userId}}\",\n  \"message\": \"Mañana tengo una cita a las cuatro\"\n}"
+        {
+          "name": "04 Title / label",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{userId}}\",\n  \"message\": \"Doctor checkup\",\n  \"confirm\": false,\n  \"pending_event\": {{pendingEvent}}\n}"
+            },
+            "url": "{{baseUrl}}/api/assistant/chat",
+            "description": "After all slots filled, expect `needs_confirmation: true`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const j = pm.response.json();",
+                  "if (j.needs_confirmation) {",
+                  "  pm.test('Ready to confirm', function () {",
+                  "    pm.expect(j.pending_event).to.be.an('object');",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ]
         },
-        "url": "{{baseUrl}}/api/assistant/chat"
-      }
+        {
+          "name": "05 Confirm save (Yes)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{userId}}\",\n  \"message\": \"yes\",\n  \"confirm\": true,\n  \"pending_event\": {{pendingEvent}}\n}"
+            },
+            "url": "{{baseUrl}}/api/assistant/chat",
+            "description": "Saves event. Response includes `event` object."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Saved event JSON', function () {",
+                  "  const j = pm.response.json();",
+                  "  pm.expect(j.ok).to.eql(true);",
+                  "  if (j.event) {",
+                  "    pm.expect(j.event.id).to.be.a('number');",
+                  "    pm.collectionVariables.set('eventId', String(j.event.id));",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Confirm reject (No)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{userId}}\",\n  \"message\": \"no\",\n  \"confirm\": false,\n  \"pending_event\": {{pendingEvent}}\n}"
+            },
+            "url": "{{baseUrl}}/api/assistant/chat"
+          }
+        },
+        {
+          "name": "One-shot create",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{userId}}\",\n  \"message\": \"Add a dentist appointment tomorrow at 4 PM\",\n  \"confirm\": false,\n  \"pending_event\": null\n}"
+            },
+            "url": "{{baseUrl}}/api/assistant/chat"
+          }
+        },
+        {
+          "name": "Search via chat",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{userId}}\",\n  \"message\": \"Show tomorrow's appointments\",\n  \"confirm\": false,\n  \"pending_event\": null\n}"
+            },
+            "url": "{{baseUrl}}/api/assistant/chat"
+          }
+        },
+        {
+          "name": "Roman Urdu",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{userId}}\",\n  \"message\": \"Kal 4 baje dentist ki appointment add kar do\",\n  \"confirm\": false,\n  \"pending_event\": null\n}"
+            },
+            "url": "{{baseUrl}}/api/assistant/chat"
+          }
+        }
+      ]
     },
     {
-      "name": "List events",
-      "request": {
-        "method": "GET",
-        "url": "{{baseUrl}}/api/events?user_id={{userId}}"
-      }
+      "name": "Assistant Voice",
+      "item": [
+        {
+          "name": "Voice note → chat",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "audio",
+                  "description": "Select a .wav / .m4a / .webm file",
+                  "type": "file",
+                  "src": []
+                },
+                { "key": "user_id", "value": "{{userId}}", "type": "text" },
+                { "key": "confirm", "value": "false", "type": "text" },
+                {
+                  "key": "pending_event",
+                  "value": "{{pendingEvent}}",
+                  "type": "text",
+                  "description": "JSON string or null"
+                }
+              ]
+            },
+            "url": "{{baseUrl}}/api/assistant/voice",
+            "description": "Multipart upload. Response includes `transcript` + same chat JSON fields."
+          }
+        }
+      ]
     },
     {
-      "name": "Search events",
-      "request": {
-        "method": "GET",
-        "url": "{{baseUrl}}/api/events/search?user_id={{userId}}&category=Appointment"
-      }
+      "name": "Events CRUD",
+      "item": [
+        {
+          "name": "List events",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/events?user_id={{userId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "events"],
+              "query": [{ "key": "user_id", "value": "{{userId}}" }]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Events is JSON array', function () {",
+                  "  const j = pm.response.json();",
+                  "  pm.expect(j).to.be.an('array');",
+                  "  if (j.length) pm.collectionVariables.set('eventId', String(j[0].id));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Search events",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/events/search?user_id={{userId}}&category=Appointment",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "events", "search"],
+              "query": [
+                { "key": "user_id", "value": "{{userId}}" },
+                { "key": "category", "value": "Appointment" },
+                { "key": "date", "value": "", "disabled": true },
+                { "key": "date_from", "value": "", "disabled": true },
+                { "key": "date_to", "value": "", "disabled": true },
+                { "key": "label", "value": "", "disabled": true },
+                { "key": "keyword", "value": "", "disabled": true }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Create event (direct)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"{{userId}}\",\n  \"event_date\": \"2026-08-20\",\n  \"event_time\": \"10:00:00\",\n  \"label\": \"Card Check\",\n  \"category\": \"To Do\",\n  \"notes\": \"From Postman\"\n}"
+            },
+            "url": "{{baseUrl}}/api/events"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Created', function () {",
+                  "  const j = pm.response.json();",
+                  "  pm.expect(j.id).to.be.a('number');",
+                  "  pm.collectionVariables.set('eventId', String(j.id));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get event by id",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/events/{{eventId}}?user_id={{userId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "events", "{{eventId}}"],
+              "query": [{ "key": "user_id", "value": "{{userId}}" }]
+            }
+          }
+        },
+        {
+          "name": "Update event",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"label\": \"Card Check Updated\",\n  \"category\": \"Important\",\n  \"notes\": \"Patched from Postman\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/events/{{eventId}}?user_id={{userId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "events", "{{eventId}}"],
+              "query": [{ "key": "user_id", "value": "{{userId}}" }]
+            }
+          }
+        },
+        {
+          "name": "Delete event by id",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/events/{{eventId}}?user_id={{userId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "events", "{{eventId}}"],
+              "query": [{ "key": "user_id", "value": "{{userId}}" }]
+            },
+            "description": "Returns JSON `{ ok, deleted }`."
+          }
+        },
+        {
+          "name": "Clear all events + draft",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/events?user_id={{userId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "events"],
+              "query": [{ "key": "user_id", "value": "{{userId}}" }]
+            }
+          }
+        }
+      ]
     }
   ]
 }

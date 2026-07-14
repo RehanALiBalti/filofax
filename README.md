@@ -92,20 +92,31 @@ See `deploy/env.example`. Upgrading the model only requires changing env vars �
 
 ## API
 
+**Mobile / Android / iOS:** all responses are JSON. See **[postman/API.md](postman/API.md)** and import:
+
+- `postman/filofax.postman_collection.json`
+- `postman/Filofax.local.postman_environment.json` or `Filofax.production.postman_environment.json`
+
+Interactive docs: `/api/docs` · endpoint map: `GET /api`
+
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/health` | Health + Ollama status |
-| POST | `/api/assistant/chat` | Natural-language create/search |
+| GET | `/api` | API index for apps |
+| GET | `/api/health` | Health + AI / Whisper status |
+| POST | `/api/assistant/chat` | Natural-language create/search (JSON) |
+| POST | `/api/assistant/voice` | Audio upload → same chat flow |
 | GET/POST | `/api/events` | List / create events |
 | GET | `/api/events/search` | Filter events |
-| GET/PATCH/DELETE | `/api/events/{id}` | Event CRUD |
+| GET/PATCH/DELETE | `/api/events/{id}` | Event CRUD (delete returns JSON) |
+| DELETE | `/api/events` | Clear all events + draft |
 
 ### Chat flow
 
-1. `POST /api/assistant/chat` with `{ "message": "Add doctor appointment tomorrow at 4 PM" }`
-2. If fields are missing → response includes `missing_fields` and a follow-up question
-3. If complete → `needs_confirmation: true` + `pending_event`
-4. Confirm with `{ "message": "yes", "confirm": true, "pending_event": {…} }`
+1. `POST /api/assistant/chat` with `{ "message": "Add doctor appointment tomorrow at 4 PM", "user_id": "…" }`
+2. If fields are missing → `missing_fields`, `suggested_replies`, and `pending_event`
+3. Echo `pending_event` on every follow-up
+4. When complete → `needs_confirmation: true`
+5. Confirm with `{ "message": "yes", "confirm": true, "pending_event": {…} }`
 
 Search example: `{ "message": "Show tomorrow's appointments" }` → `events` array.
 

@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
@@ -38,10 +38,25 @@ from backend.voice import VoiceTranscriptionError, transcribe_audio_bytes, whisp
 
 FRONTEND_DIR = APP_ROOT / "frontend"
 
+API_DESCRIPTION = """
+JSON REST API for Android / iOS / web clients.
+
+**Chat flow**
+1. `POST /api/assistant/chat` with `{ message, user_id }`
+2. Show `message` and chips from `suggested_replies`
+3. Echo `pending_event` on every follow-up until saved or cleared
+4. When `needs_confirmation` is true, send `{ confirm: true, message: "yes", pending_event }`
+
+**Events CRUD** also available under `/api/events`.
+"""
+
 app = FastAPI(
-    title="Filofax AI Event Assistant",
-    description="Self-hosted event create/search assistant powered by local Ollama models.",
-    version="1.0.0",
+    title="Filofax Mobile API",
+    description=API_DESCRIPTION,
+    version="1.1.0",
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+    openapi_url="/api/openapi.json",
 )
 
 app.add_middleware(
@@ -51,6 +66,36 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+def _error_json(status: int, detail: Any, *, code: str = "error") -> JSONResponse:
+    if isinstance(detail, list):
+        message = "Validation failed"
+    else:
+        message = str(detail)
+    return JSONResponse(
+        status_code=status,
+        content={
+            "ok": False,
+            "error": {
+                "code": code,
+                "message": message,
+                "detail": detail,
+            },
+        },
+    )
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(_request: Request, exc: HTTPException) -> JSONResponse:
+    return _error_json(exc.status_code, exc.detail, code="http_error")
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(
+    _request: Request, exc: RequestValidationError
+) -> JSONResponse:
+    return _error_json(422, exc.errors(), code="validation_error")
 
 
 @app.on_event("startup")
@@ -70,7 +115,62 @@ if FRONTEND_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
 
 
-@app.get("/api/health")
+@app.get("/api", tags=["Meta"])
+def api_index() -> dict:
+    """Mobile/app discovery — list of JSON endpoints."""
+    return {
+        "ok": True,
+        "service": "filofax",
+        "version": "1.1.0",
+        "docs": "/api/docs",
+        "openapi": "/api/openapi.json",
+        "categories": list(ALLOWED_CATEGORIES),
+        "endpoints": {
+            "health": {"method": "GET", "path": "/api/health"},
+            "chat": {
+                "method": "POST",
+                "path": "/api/assistant/chat",
+                "body": {
+                    "message": "string",
+                    "user_id": "string",
+                    "confirm": "bool (optional)",
+                    "pending_event": "object|null (echo from previous reply)",
+                },
+            },
+            "voice": {
+                "method": "POST",
+                "path": "/api/assistant/voice",
+                "content_type": "multipart/form-data",
+                "fields": ["audio", "user_id", "confirm", "pending_event"],
+            },
+            "list_events": {"method": "GET", "path": "/api/events?user_id="},
+            "search_events": {"method": "GET", "path": "/api/events/search"},
+            "create_event": {"method": "POST", "path": "/api/events"},
+            "get_event": {"method": "GET", "path": "/api/events/{id}"},
+            "update_event": {"method": "PATCH", "path": "/api/events/{id}"},
+            "delete_event": {"method": "DELETE", "path": "/api/events/{id}"},
+            "clear_events": {"method": "DELETE", "path": "/api/events?user_id="},
+        },
+        "chat_response_fields": [
+            "ok",
+            "intent",
+            "message",
+            "pending_event",
+            "suggested_replies",
+            "needs_confirmation",
+            "requires_clarification",
+            "missing_fields",
+            "event",
+            "events",
+            "language",
+            "confidence",
+            "input_mode",
+            "transcript",
+        ],
+    }
+
+
+@app.get("/api/health", tags=["Meta"])
 def health() -> dict:
     runtime = ai_service.health()
     return {
@@ -88,8 +188,9 @@ def health() -> dict:
     }
 
 
-@app.post("/api/assistant/chat", response_model=AssistantResponse)
+@app.post("/api/assistant/chat", response_model=AssistantResponse, tags=["Assistant"])
 def assistant_chat(body: ChatRequest, db: Session = Depends(get_db)) -> AssistantResponse:
+    """Natural-language chat. Always JSON. Echo `pending_event` each turn."""
     result = assistant_service.handle_chat(
         db,
         message=body.message,
@@ -100,7 +201,7 @@ def assistant_chat(body: ChatRequest, db: Session = Depends(get_db)) -> Assistan
     return result.model_copy(update={"input_mode": "text"})
 
 
-@app.post("/api/assistant/voice", response_model=AssistantResponse)
+@app.post("/api/assistant/voice", response_model=AssistantResponse, tags=["Assistant"])
 async def assistant_voice(
     audio: UploadFile = File(...),
     user_id: str = Form(DEFAULT_USER_ID),
@@ -146,15 +247,16 @@ async def assistant_voice(
     return result.model_copy(update={"transcript": transcript, "input_mode": "voice"})
 
 
-@app.get("/api/events", response_model=list[EventOut])
+@app.get("/api/events", response_model=list[EventOut], tags=["Events"])
 def list_events(
     user_id: str = Query(DEFAULT_USER_ID),
     db: Session = Depends(get_db),
 ) -> list[EventOut]:
+    """List all events for a user (JSON array)."""
     return [EventOut.model_validate(e) for e in event_service.list_events(db, user_id)]
 
 
-@app.get("/api/events/search", response_model=list[EventOut])
+@app.get("/api/events/search", response_model=list[EventOut], tags=["Events"])
 def search_events(
     user_id: str = Query(DEFAULT_USER_ID),
     date: Optional[str] = None,
@@ -179,7 +281,7 @@ def search_events(
     return [EventOut.model_validate(e) for e in events]
 
 
-@app.post("/api/events", response_model=EventOut, status_code=201)
+@app.post("/api/events", response_model=EventOut, status_code=201, tags=["Events"])
 def create_event(body: EventCreate, db: Session = Depends(get_db)) -> EventOut:
     event = event_service.create_event(
         db,
@@ -193,7 +295,7 @@ def create_event(body: EventCreate, db: Session = Depends(get_db)) -> EventOut:
     return EventOut.model_validate(event)
 
 
-@app.get("/api/events/{event_id}", response_model=EventOut)
+@app.get("/api/events/{event_id}", response_model=EventOut, tags=["Events"])
 def get_event(
     event_id: int,
     user_id: str = Query(DEFAULT_USER_ID),
@@ -205,7 +307,7 @@ def get_event(
     return EventOut.model_validate(event)
 
 
-@app.patch("/api/events/{event_id}", response_model=EventOut)
+@app.patch("/api/events/{event_id}", response_model=EventOut, tags=["Events"])
 def update_event(
     event_id: int,
     body: EventUpdate,
@@ -223,7 +325,7 @@ def update_event(
     return EventOut.model_validate(updated)
 
 
-@app.delete("/api/events", status_code=200)
+@app.delete("/api/events", status_code=200, tags=["Events"])
 def delete_all_events(
     user_id: str = Query(DEFAULT_USER_ID),
     db: Session = Depends(get_db),
@@ -236,13 +338,15 @@ def delete_all_events(
     return {"ok": True, "deleted": count, "message": f"Cleared {count} reminder(s)."}
 
 
-@app.delete("/api/events/{event_id}", status_code=204)
+@app.delete("/api/events/{event_id}", status_code=200, tags=["Events"])
 def delete_event(
     event_id: int,
     user_id: str = Query(DEFAULT_USER_ID),
     db: Session = Depends(get_db),
-) -> None:
+) -> dict:
+    """Delete one event — JSON body so mobile clients always get a response."""
     event = event_service.get_event(db, event_id, user_id)
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
     event_service.delete_event(db, event)
+    return {"ok": True, "deleted": event_id}
