@@ -100,6 +100,11 @@ async def validation_exception_handler(
     return _error_json(422, exc.errors(), code="validation_error")
 
 
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(_request: Request, exc: Exception) -> JSONResponse:
+    return _error_json(500, str(exc) or repr(exc), code="internal_error")
+
+
 @app.on_event("startup")
 def on_startup() -> None:
     init_db()

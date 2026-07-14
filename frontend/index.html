@@ -1423,7 +1423,15 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
-        const data = await res.json();
+        const raw = await res.text();
+        let data = {};
+        try { data = raw ? JSON.parse(raw) : {}; } catch (_) {
+          throw new Error(res.ok ? "Invalid JSON from server" : (raw.slice(0, 180) || res.statusText));
+        }
+        if (!res.ok) {
+          const errMsg = (data.error && data.error.message) || data.detail || data.message || raw.slice(0, 180) || res.statusText;
+          throw new Error(errMsg);
+        }
         hideTyping();
         await applyAssistantResult(data);
       } catch (err) {

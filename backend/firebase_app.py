@@ -10,9 +10,13 @@ _app: Any = None
 
 
 def is_enabled() -> bool:
-    """True when project id and credentials are configured."""
+    """True when project id, credentials, and firebase_admin package are available."""
     project = os.getenv("FIREBASE_PROJECT_ID", "").strip()
     if not project:
+        return False
+    try:
+        import firebase_admin  # noqa: F401
+    except ImportError:
         return False
     json_raw = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON", "").strip()
     if json_raw:
@@ -73,12 +77,23 @@ def get_firestore():
 
 def check_firebase() -> dict[str, Any]:
     project_id = os.getenv("FIREBASE_PROJECT_ID", "").strip()
+    collection = os.getenv("FIRESTORE_REMINDERS_COLLECTION", "myReminders")
+    try:
+        import firebase_admin  # noqa: F401
+    except ImportError:
+        return {
+            "ok": False,
+            "enabled": False,
+            "project_id": project_id or None,
+            "collection": collection,
+            "error": "firebase-admin not installed — run: pip install firebase-admin",
+        }
     if not is_enabled():
         return {
             "ok": False,
             "enabled": False,
             "project_id": project_id or None,
-            "collection": os.getenv("FIRESTORE_REMINDERS_COLLECTION", "myReminders"),
+            "collection": collection,
             "error": "Firebase env vars not set — using SQLite fallback",
         }
     try:
@@ -88,13 +103,13 @@ def check_firebase() -> dict[str, Any]:
             "ok": True,
             "enabled": True,
             "project_id": project_id,
-            "collection": os.getenv("FIRESTORE_REMINDERS_COLLECTION", "myReminders"),
+            "collection": collection,
         }
     except Exception as exc:
         return {
             "ok": False,
             "enabled": True,
             "project_id": project_id,
-            "collection": os.getenv("FIRESTORE_REMINDERS_COLLECTION", "myReminders"),
+            "collection": collection,
             "error": str(exc),
         }
