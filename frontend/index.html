@@ -190,6 +190,31 @@
       color: #fff;
       animation: playPulse 1s ease-in-out infinite;
     }
+    .bubble-play.needs-tap {
+      background: #ffe8a3;
+      color: #6b4e00;
+      box-shadow: 0 0 0 3px rgba(255, 200, 60, 0.45);
+      animation: tapPulse 1.1s ease-in-out infinite;
+      transform: scale(1.08);
+    }
+    @keyframes tapPulse {
+      0%, 100% { box-shadow: 0 0 0 3px rgba(255, 200, 60, 0.35); }
+      50% { box-shadow: 0 0 0 7px rgba(255, 200, 60, 0.15); }
+    }
+    .tts-tap-hint {
+      display: none;
+      margin: 0.15rem 0.85rem 0.35rem;
+      padding: 0.45rem 0.75rem;
+      border-radius: 0.65rem;
+      background: #fff6d6;
+      border: 1px solid rgba(150, 110, 20, 0.25);
+      color: #6b4e00;
+      font-size: 0.82rem;
+      font-weight: 600;
+      cursor: pointer;
+      text-align: center;
+    }
+    .tts-tap-hint.show { display: block; animation: bubbleIn 0.25s ease both; }
     @keyframes playPulse {
       0%, 100% { opacity: 1; }
       50% { opacity: 0.7; }
@@ -538,6 +563,7 @@
             <button type="button" class="yes" id="confirmYes">Yes, save</button>
             <button type="button" class="no" id="confirmNo">No</button>
           </div>
+          <button type="button" class="tts-tap-hint" id="ttsTapHint" hidden>🔊 Tap to hear reply</button>
           <div class="slot-chips" id="slotChips" hidden></div>
           <div class="composer-row" id="textRow">
             <div class="composer-input-wrap">
@@ -704,6 +730,31 @@
     let speakGeneration = 0;
     let audioUnlocked = false;
     let speakRetryTimer = null;
+    let pendingSpeak = null; // { text, playBtn } — flushed on next user gesture (mobile)
+    const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
+      || (navigator.maxTouchPoints > 1 && /Mac/i.test(navigator.platform || ""));
+    const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent)
+      || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+
+    const ttsTapHint = document.getElementById("ttsTapHint");
+
+    function clearNeedsTap() {
+      document.querySelectorAll(".bubble-play.needs-tap").forEach((el) => {
+        el.classList.remove("needs-tap");
+      });
+      if (ttsTapHint) {
+        ttsTapHint.hidden = true;
+        ttsTapHint.classList.remove("show");
+      }
+    }
+
+    function showTapToHear(playBtn) {
+      if (playBtn) playBtn.classList.add("needs-tap");
+      if (ttsTapHint) {
+        ttsTapHint.hidden = false;
+        ttsTapHint.classList.add("show");
+      }
+    }
 
     function stopSpeaking() {
       if (!canSpeak) return;
@@ -729,7 +780,10 @@
       } catch (_) { /* ignore */ }
     }
 
-    /** Chromium blocks TTS after async fetch unless synth was unlocked by a user gesture. */
+    /**
+     * Must run inside a real user gesture (touch/click), sync — no await before this.
+     * iOS/Android block speech after fetch(); unlock warms the engine for later / pending flush.
+     */
     function unlockSpeechAudio() {
       if (!canSpeak) return;
       audioUnlocked = true;
@@ -737,12 +791,18 @@
         window.speechSynthesis.resume();
       } catch (_) { /* ignore */ }
       try {
-        const warm = new SpeechSynthesisUtterance(" ");
-        warm.volume = 0;
+        // Don't interrupt a reply that's already playing
+        if (window.speechSynthesis.speaking || window.speechSynthesis.pending) return;
+        // Do NOT cancel on iOS — cancel undoes the unlock gesture
+        const warm = new SpeechSynthesisUtterance(isIOS ? "." : " ");
+        warm.volume = isIOS ? 0.01 : 0;
         warm.rate = 2;
         warm.pitch = 1;
+        warm.lang = navigator.language || "en-US";
         window.speechSynthesis.speak(warm);
-        window.speechSynthesis.cancel();
+        if (!isIOS) {
+          window.speechSynthesis.cancel();
+        }
       } catch (_) { /* ignore */ }
     }
 
@@ -757,12 +817,44 @@
         .trim();
     }
 
-    function speakText(text, { isWelcome = false, force = false, playBtn = null } = {}) {
+    function queuePendingSpeak(text, playBtn) {
+      pendingSpeak = { text, playBtn: playBtn || null };
+      showTapToHear(playBtn);
+    }
+
+    /** Speak pending reply during the current user gesture (mobile-safe). */
+    function flushPendingSpeak() {
+      if (!pendingSpeak || !ttsEnabled || !canSpeak) return false;
+      const job = pendingSpeak;
+      pendingSpeak = null;
+      clearNeedsTap();
+      speakText(job.text, {
+        force: true,
+        playBtn: job.playBtn,
+        immediate: true,
+        fromGesture: true,
+      });
+      return true;
+    }
+
+    function speakText(text, {
+      isWelcome = false,
+      force = false,
+      playBtn = null,
+      immediate = false,
+      fromGesture = false,
+    } = {}) {
       if ((!ttsEnabled && !force) || !canSpeak || !text) return;
       const clean = ttsClean(text);
       if (!clean) return;
 
       const myGen = ++speakGeneration;
+
+      const markFailedAuto = () => {
+        if (isWelcome) welcomeSpoken = false;
+        // Keep a pending play for the next tap (required on iOS / many Android browsers)
+        queuePendingSpeak(clean, playBtn);
+      };
 
       const kick = (attempt) => {
         if (myGen !== speakGeneration) return;
@@ -780,9 +872,14 @@
           speakRetryTimer = null;
         }
 
-        try {
-          window.speechSynthesis.cancel();
-        } catch (_) { /* ignore */ }
+        // Avoid cancel-before-speak on first gesture attempt (breaks iOS)
+        if (!(fromGesture && attempt === 0 && immediate)) {
+          try {
+            window.speechSynthesis.cancel();
+          } catch (_) { /* ignore */ }
+        }
+
+        const delay = immediate && attempt === 0 ? 0 : (attempt === 0 ? (isMobile ? 80 : 140) : 240);
 
         speakTimer = setTimeout(() => {
           if (myGen !== speakGeneration) return;
@@ -798,7 +895,7 @@
           } else {
             utter.lang = navigator.language || "en-US";
           }
-          utter.rate = 0.95;
+          utter.rate = isIOS ? 1 : 0.95;
           utter.pitch = 1.08;
           utter.volume = 1;
 
@@ -806,12 +903,15 @@
           if (playBtn) {
             activePlayBtn = playBtn;
             playBtn.classList.add("playing");
+            playBtn.classList.remove("needs-tap");
           }
 
           utter.onstart = () => {
             started = true;
             if (isWelcome) welcomeSpoken = true;
             audioUnlocked = true;
+            if (pendingSpeak && pendingSpeak.text === clean) pendingSpeak = null;
+            clearNeedsTap();
           };
 
           keepAliveTimer = setInterval(() => {
@@ -831,7 +931,7 @@
               clearInterval(keepAliveTimer);
               keepAliveTimer = null;
             }
-          }, 4000);
+          }, 3000);
 
           const done = () => {
             if (keepAliveTimer) {
@@ -848,10 +948,11 @@
           utter.onend = done;
           utter.onerror = () => {
             done();
-            if (isWelcome) welcomeSpoken = false;
-            if (attempt < 1 && myGen === speakGeneration) {
-              speakRetryTimer = setTimeout(() => kick(attempt + 1), 220);
+            if (attempt < 1 && myGen === speakGeneration && fromGesture) {
+              speakRetryTimer = setTimeout(() => kick(attempt + 1), 180);
+              return;
             }
+            if (myGen === speakGeneration) markFailedAuto();
           };
 
           try {
@@ -860,20 +961,25 @@
           } catch (_) {
             done();
             if (attempt < 1 && myGen === speakGeneration) {
-              speakRetryTimer = setTimeout(() => kick(attempt + 1), 220);
+              speakRetryTimer = setTimeout(() => kick(attempt + 1), 180);
+            } else if (myGen === speakGeneration) {
+              markFailedAuto();
             }
             return;
           }
 
-          // Queued but never started (common after await fetch)
+          const waitMs = fromGesture ? 900 : (isMobile ? 600 : 750);
           speakRetryTimer = setTimeout(() => {
-            if (myGen !== speakGeneration || started || attempt >= 1) return;
-            try {
-              window.speechSynthesis.cancel();
-            } catch (_) { /* ignore */ }
-            kick(attempt + 1);
-          }, 750);
-        }, attempt === 0 ? 140 : 240);
+            if (myGen !== speakGeneration || started) return;
+            if (attempt < 1) {
+              try { window.speechSynthesis.cancel(); } catch (_) { /* ignore */ }
+              kick(attempt + 1);
+              return;
+            }
+            done();
+            markFailedAuto();
+          }, waitMs);
+        }, delay);
       };
 
       const begin = () => kick(0);
@@ -887,7 +993,9 @@
           begin();
         };
         window.speechSynthesis.addEventListener("voiceschanged", once);
-        setTimeout(once, 600);
+        setTimeout(once, isIOS ? 300 : 600);
+        // On gesture path, still try immediately — voices may load mid-way
+        if (fromGesture || immediate) begin();
         return;
       }
       begin();
@@ -899,19 +1007,24 @@
       if (welcomeSpoken || !ttsEnabled) return;
       unlockSpeechAudio();
       const btn = welcomeBubbleEl?.querySelector(".bubble-play") || null;
-      speakText(WELCOME_MSG, { isWelcome: true, playBtn: btn });
+      speakText(WELCOME_MSG, { isWelcome: true, playBtn: btn, immediate: true, fromGesture: true });
     }
 
     function bindWelcomeUnlock() {
       if (welcomeUnlockBound) return;
       welcomeUnlockBound = true;
-      const unlock = () => {
+      const onGesture = () => {
         unlockSpeechAudio();
+        // Flush any reply waiting for a tap (mobile autoplay policy)
+        if (pendingSpeak) {
+          flushPendingSpeak();
+          return;
+        }
         if (!welcomeSpoken) tryWelcomeSpeak();
       };
-      window.addEventListener("pointerdown", unlock, { passive: true });
-      window.addEventListener("keydown", unlock);
-      window.addEventListener("touchstart", unlock, { passive: true });
+      window.addEventListener("pointerdown", onGesture, { passive: true });
+      window.addEventListener("touchstart", onGesture, { passive: true });
+      window.addEventListener("keydown", onGesture);
     }
 
     function syncTtsButton() {
@@ -956,6 +1069,13 @@
       });
       syncTtsButton();
     }
+
+    ttsTapHint?.addEventListener("click", () => {
+      unlockSpeechAudio();
+      if (!flushPendingSpeak() && activePlayBtn) {
+        activePlayBtn.click();
+      }
+    });
 
     function syncComposerButtons() {
       const hasText = input.value.trim().length > 0;
@@ -1199,11 +1319,27 @@
       const msg = data.message || JSON.stringify(data);
       const bubble = addBubble(msg, "bot");
       const playBtn = bubble.querySelector(".bubble-play");
-      // Re-assert unlock + resume right before speaking (post-fetch)
+      // Post-fetch autoplay is blocked on most mobiles — try speak, queue for next tap if it fails
       if (canSpeak && ttsEnabled) {
         try { window.speechSynthesis.resume(); } catch (_) { /* ignore */ }
+        speakText(msg, { playBtn, immediate: false, fromGesture: false });
+        // iOS / many Androids never fire onstart after fetch — offer tap-to-hear
+        if (isMobile) {
+          setTimeout(() => {
+            const playing = playBtn && playBtn.classList.contains("playing");
+            const synthBusy = (() => {
+              try {
+                return window.speechSynthesis.speaking || window.speechSynthesis.pending;
+              } catch (_) {
+                return false;
+              }
+            })();
+            if (!playing && !synthBusy && ttsEnabled) {
+              queuePendingSpeak(msg, playBtn);
+            }
+          }, isIOS ? 450 : 900);
+        }
       }
-      speakText(msg, { playBtn });
       setConfirmUi(Boolean(data.needs_confirmation));
       const nextField = (data.missing_fields && data.missing_fields[0]) || null;
       setPlaceholder(data.needs_confirmation ? "default" : nextField);
@@ -1269,8 +1405,9 @@
         && !/^(todo|to do|important|appointment)\b/i.test(lower.trim());
       if (freshCreate) setPending(null);
 
-      // Keep TTS unlocked across the async network wait
+      // Gesture path: unlock + play any queued reply first (mobile)
       unlockSpeechAudio();
+      flushPendingSpeak();
       setBusy(true);
       showTyping("Thinking…");
       try {
@@ -1299,6 +1436,7 @@
 
     async function sendVoice(blob) {
       unlockSpeechAudio();
+      flushPendingSpeak();
       setBusy(true);
       showTyping("Listening / transcribing…");
       try {
