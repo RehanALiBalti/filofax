@@ -409,7 +409,7 @@ def draft_so_far_line(
     bucket = _lang_bucket(language, text)
     joined = " · ".join(bits)
     templates = {
-        "en": [f"So far: {joined}.", f"Got: {joined}."],
+        "en": [f"So far: {joined}.", f"Got it: {joined}."],
         "ur-Latn": [f"Ab tak: {joined}.", f"Set: {joined}."],
         "ur": [f"اب تک: {joined}۔"],
         "hi-Latn": [f"Ab tak: {joined}."],
