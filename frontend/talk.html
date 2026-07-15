@@ -171,8 +171,11 @@
       font-size: 0.88rem;
       color: var(--muted);
       text-align: center;
-      max-width: 18rem;
+      max-width: 20rem;
       line-height: 1.4;
+    }
+    .orb.speaking {
+      cursor: pointer;
     }
 
     .transcript {
@@ -254,13 +257,13 @@
     </div>
 
     <div class="main">
-      <div class="status" id="status">Tap the orb to talk</div>
+      <div class="status" id="status">Tap to talk · interrupt anytime</div>
       <div class="orb-wrap">
         <div class="orb-ring" aria-hidden="true"></div>
         <div class="orb-ring r2" aria-hidden="true"></div>
         <button type="button" class="orb" id="orb" aria-label="Tap to talk"></button>
       </div>
-      <div class="hint" id="hint">Hold a conversation like ChatGPT Voice — same reminder assistant underneath.</div>
+      <div class="hint" id="hint">You can interrupt while I'm speaking — tap the orb or just talk.</div>
       <div class="transcript" id="transcript" aria-live="polite"></div>
       <div class="chips" id="chips" hidden></div>
     </div>
@@ -317,12 +320,16 @@
     const userId = resolveUserId();
     const timezone = resolveTimezone();
     let pendingEvent = null;
-    let busy = false;
+    let busy = false;       // waiting on API
+    let speaking = false;   // TTS playing — can barge-in
     let ttsEnabled = true;
     let listening = false;
     let recognition = null;
+    let bargeRecognition = null;
     let finalText = "";
     let interimText = "";
+    let speakGeneration = 0;
+    let bargeArmedAt = 0;
 
     const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
     const canSpeak = !!window.speechSynthesis;
@@ -384,7 +391,7 @@
         if (confirm && (lower === "no" || lower.startsWith("no,"))) btn.classList.add("no");
         btn.textContent = label;
         btn.addEventListener("click", () => {
-          unlockAudio();
+          interruptSpeaking();
           sendChat(label, confirm && (lower.startsWith("yes") || lower.includes("save")));
         });
         chipsEl.appendChild(btn);
@@ -394,44 +401,115 @@
     function unlockAudio() {
       try {
         if (!canSpeak) return;
-        window.speechSynthesis.cancel();
         const u = new SpeechSynthesisUtterance(" ");
         u.volume = 0;
         window.speechSynthesis.speak(u);
       } catch (_) {}
     }
 
+    function stopBargeListener() {
+      try { if (bargeRecognition) bargeRecognition.onresult = null; } catch (_) {}
+      try { if (bargeRecognition) bargeRecognition.stop(); } catch (_) {}
+      bargeRecognition = null;
+    }
+
+    /** Cancel TTS immediately — like ChatGPT voice barge-in. */
+    function interruptSpeaking() {
+      if (!speaking && !(canSpeak && window.speechSynthesis.speaking)) return false;
+      speakGeneration += 1;
+      speaking = false;
+      stopBargeListener();
+      try { window.speechSynthesis.cancel(); } catch (_) {}
+      setOrbMode("");
+      return true;
+    }
+
+    function startBargeListener() {
+      if (!SpeechRecognitionAPI || !speaking) return;
+      stopBargeListener();
+      bargeArmedAt = Date.now() + 700; // ignore echo of our own TTS briefly
+      try {
+        bargeRecognition = new SpeechRecognitionAPI();
+        bargeRecognition.continuous = true;
+        bargeRecognition.interimResults = true;
+        bargeRecognition.lang = "en-US";
+        bargeRecognition.onresult = (event) => {
+          if (!speaking) return;
+          if (Date.now() < bargeArmedAt) return;
+          let chunk = "";
+          for (let i = event.resultIndex; i < event.results.length; i++) {
+            chunk += event.results[i][0].transcript || "";
+          }
+          const text = chunk.trim();
+          // Need a real utterance (avoid TTS echo/noise)
+          if (text.length < 6 && text.split(/\s+/).filter(Boolean).length < 2) return;
+          const kept = text;
+          interruptSpeaking();
+          finalText = kept;
+          interimText = "";
+          showInterim(kept);
+          startListening({ seed: kept, fromBarge: true });
+        };
+        bargeRecognition.onerror = () => {};
+        bargeRecognition.onend = () => {
+          if (speaking) {
+            try { bargeRecognition.start(); } catch (_) {}
+          }
+        };
+        bargeRecognition.start();
+      } catch (_) {
+        bargeRecognition = null;
+      }
+    }
+
     function speak(text) {
-      if (!ttsEnabled || !canSpeak || !text) return Promise.resolve();
+      if (!ttsEnabled || !canSpeak || !text) {
+        speaking = false;
+        return Promise.resolve();
+      }
+      const gen = ++speakGeneration;
       return new Promise((resolve) => {
         try {
-          window.speechSynthesis.cancel();
+          try { window.speechSynthesis.cancel(); } catch (_) {}
           const u = new SpeechSynthesisUtterance(text);
           u.rate = 1.02;
-          u.onend = () => {
-            setOrbMode("");
-            setStatus("Tap the orb to talk");
+          const finish = () => {
+            if (gen !== speakGeneration) {
+              resolve();
+              return;
+            }
+            speaking = false;
+            stopBargeListener();
+            if (!listening && !busy) {
+              setOrbMode("");
+              setStatus("Tap to talk · interrupt anytime");
+              hintEl.textContent = "You can interrupt while I'm speaking — tap the orb or just talk.";
+            }
             resolve();
           };
-          u.onerror = () => {
-            setOrbMode("");
-            resolve();
-          };
+          u.onend = finish;
+          u.onerror = finish;
+          speaking = true;
           setOrbMode("speaking");
-          setStatus("Speaking…", "speak");
+          setStatus("Speaking… tap or talk to interrupt", "speak");
+          hintEl.textContent = "Interrupt anytime — tap the orb or start talking.";
           window.speechSynthesis.speak(u);
+          startBargeListener();
         } catch (_) {
+          speaking = false;
           resolve();
         }
       });
     }
 
     async function sendChat(message, confirm = false) {
-      if (!message || busy) return;
+      const text = String(message || "").trim();
+      if (!text || busy) return;
       busy = true;
+      interruptSpeaking();
       stopListening(false);
       clearInterim();
-      addLine(message, "user");
+      addLine(text, "user");
       setChips([]);
       setOrbMode("thinking");
       setStatus("Thinking…", "think");
@@ -439,7 +517,7 @@
 
       try {
         const body = {
-          message,
+          message: text,
           user_id: userId,
           timezone,
           confirm: Boolean(confirm),
@@ -469,15 +547,15 @@
 
         if (data.needs_confirmation) {
           setChips(data.suggested_replies || ["Yes, save", "No"], { confirm: true });
-          hintEl.textContent = "Say yes to save, or tap a chip.";
+          hintEl.textContent = "Say yes to save, tap a chip, or interrupt and speak.";
         } else if (data.suggested_replies && data.suggested_replies.length) {
           setChips(data.suggested_replies);
-          hintEl.textContent = "Tap a suggestion or speak again.";
+          hintEl.textContent = "Tap a suggestion, or interrupt and speak.";
         } else {
           setChips([]);
-          hintEl.textContent = "Tap the orb to continue.";
         }
 
+        busy = false;
         await speak(reply);
       } catch (err) {
         setStatus(String(err.message || err), "err");
@@ -485,40 +563,46 @@
         setOrbMode("");
       } finally {
         busy = false;
-        if (!orb.classList.contains("speaking")) {
+        if (!speaking && !listening) {
           setOrbMode("");
-          setStatus("Tap the orb to talk");
+          setStatus("Tap to talk · interrupt anytime");
         }
       }
     }
 
     function stopListening(send = true) {
       listening = false;
-      setOrbMode(busy ? "thinking" : "");
       try { if (recognition) recognition.stop(); } catch (_) {}
+      recognition = null;
       const text = (finalText + " " + interimText).replace(/\s+/g, " ").trim();
       finalText = "";
       interimText = "";
       clearInterim();
       if (send && text) sendChat(text);
-      else if (!busy) setStatus("Tap the orb to talk");
+      else if (!busy && !speaking) {
+        setOrbMode("");
+        setStatus("Tap to talk · interrupt anytime");
+      }
     }
 
-    function startListening() {
+    function startListening({ seed = "", fromBarge = false } = {}) {
       if (!SpeechRecognitionAPI) {
         setStatus("Speech not supported — use Chrome/Edge, or open text chat", "err");
         return;
       }
       if (busy) return;
-      unlockAudio();
-      if (canSpeak) window.speechSynthesis.cancel();
 
-      finalText = "";
+      interruptSpeaking();
+      unlockAudio();
+      stopBargeListener();
+
+      finalText = seed || "";
       interimText = "";
       listening = true;
       setOrbMode("listening");
-      setStatus("Listening…", "live");
+      setStatus(fromBarge ? "Interrupted — listening…" : "Listening…", "live");
       hintEl.textContent = "Tap the orb again when you're done.";
+      if (finalText) showInterim(finalText);
 
       recognition = new SpeechRecognitionAPI();
       recognition.continuous = true;
@@ -558,6 +642,12 @@
 
     orb.addEventListener("click", () => {
       unlockAudio();
+      // Barge-in: interrupt AI mid-sentence and start listening
+      if (speaking || (canSpeak && window.speechSynthesis.speaking)) {
+        interruptSpeaking();
+        startListening({ fromBarge: true });
+        return;
+      }
       if (busy) return;
       if (listening) stopListening(true);
       else startListening();
@@ -567,12 +657,13 @@
       ttsEnabled = !ttsEnabled;
       muteBtn.textContent = ttsEnabled ? "🔊 Voice" : "🔇 Muted";
       muteBtn.classList.toggle("off", !ttsEnabled);
-      if (!ttsEnabled && canSpeak) window.speechSynthesis.cancel();
+      if (!ttsEnabled) interruptSpeaking();
       unlockAudio();
     });
 
     clearBtn.addEventListener("click", async () => {
       unlockAudio();
+      interruptSpeaking();
       stopListening(false);
       pendingEvent = null;
       transcriptEl.innerHTML = "";
@@ -581,12 +672,14 @@
         await fetch(`${API}/api/events?user_id=${encodeURIComponent(userId)}`, { method: "DELETE" });
       } catch (_) {}
       addLine("Cleared. Let's set up the event. What is the date and time?", "bot");
-      setStatus("Tap the orb to talk");
+      setStatus("Tap to talk · interrupt anytime");
       setOrbMode("");
     });
 
     // Warm greeting (same opener as chat)
     addLine("Let's set up the event. What is the date and time for this event?", "bot");
+    setStatus("Tap to talk · interrupt anytime");
+    hintEl.textContent = "You can interrupt while I'm speaking — tap the orb or just talk.";
     setTimeout(() => {
       unlockAudio();
       speak("Let's set up the event. What is the date and time for this event?");
