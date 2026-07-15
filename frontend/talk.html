@@ -14,16 +14,12 @@
       --ink: #edf2ff;
       --muted: #9aa8c7;
       --accent: #6ea8ff;
-      --accent2: #8b7bff;
       --good: #5be2b2;
       --warn: #ffd27a;
       --danger: #ff7b8a;
     }
     * { box-sizing: border-box; }
-    html, body {
-      height: 100%;
-      margin: 0;
-    }
+    html, body { height: 100%; margin: 0; }
     body {
       min-height: 100dvh;
       font-family: "Outfit", system-ui, sans-serif;
@@ -48,22 +44,9 @@
       max-width: 560px;
       margin: 0 auto;
     }
-    .top {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 0.75rem;
-    }
-    .brand {
-      font-weight: 600;
-      letter-spacing: 0.02em;
-      font-size: 0.95rem;
-      opacity: 0.92;
-    }
-    .top-actions {
-      display: flex;
-      gap: 0.45rem;
-    }
+    .top { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
+    .brand { font-weight: 600; font-size: 0.95rem; opacity: 0.92; }
+    .top-actions { display: flex; gap: 0.45rem; }
     .pill {
       border: 1px solid rgba(237, 242, 255, 0.12);
       background: rgba(255, 255, 255, 0.04);
@@ -75,28 +58,25 @@
       font-weight: 600;
       cursor: pointer;
     }
-    .pill:active { transform: scale(0.97); }
     .pill.off { opacity: 0.55; }
     .main {
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      gap: 1.4rem;
+      gap: 1.15rem;
       min-height: 0;
     }
     .status {
       min-height: 1.4rem;
       font-size: 0.95rem;
       color: var(--muted);
-      letter-spacing: 0.02em;
       text-align: center;
     }
     .status.live { color: var(--good); }
     .status.think { color: var(--warn); }
     .status.speak { color: var(--accent); }
     .status.err { color: var(--danger); }
-
     .orb-wrap {
       position: relative;
       width: min(58vw, 220px);
@@ -119,13 +99,11 @@
       border-radius: 50%;
       border: 0;
       cursor: pointer;
-      background:
-        radial-gradient(circle at 35% 30%, #d7e7ff 0%, #8eb6ff 28%, #6a7dff 62%, #3c2f8c 100%);
+      background: radial-gradient(circle at 35% 30%, #d7e7ff 0%, #8eb6ff 28%, #6a7dff 62%, #3c2f8c 100%);
       box-shadow:
         0 0 0 1px rgba(255, 255, 255, 0.12) inset,
         0 20px 60px rgba(80, 120, 255, 0.35),
         0 0 80px rgba(110, 168, 255, 0.25);
-      transition: transform 0.2s ease, filter 0.2s ease;
       position: relative;
       overflow: hidden;
     }
@@ -137,26 +115,16 @@
       background: radial-gradient(circle at 40% 35%, rgba(255,255,255,0.55), transparent 55%);
       pointer-events: none;
     }
-    .orb:active { transform: scale(0.97); }
-    .orb.listening {
-      animation: orbListen 1.1s ease-in-out infinite;
-      filter: saturate(1.15);
-    }
-    .orb.thinking {
-      animation: orbThink 1.4s ease-in-out infinite;
-      filter: hue-rotate(25deg);
-    }
-    .orb.speaking {
-      animation: orbSpeak 0.9s ease-in-out infinite;
-      filter: saturate(1.25) brightness(1.05);
-    }
+    .orb.listening { animation: orbListen 1.1s ease-in-out infinite; }
+    .orb.thinking { animation: orbThink 1.4s ease-in-out infinite; filter: hue-rotate(25deg); }
+    .orb.speaking { animation: orbSpeak 0.9s ease-in-out infinite; }
     @keyframes ringPulse {
       0%, 100% { transform: scale(1); opacity: 0.35; }
       50% { transform: scale(1.04); opacity: 0.75; }
     }
     @keyframes orbListen {
-      0%, 100% { transform: scale(1); box-shadow: 0 0 0 1px rgba(255,255,255,0.12) inset, 0 0 40px rgba(91, 226, 178, 0.35); }
-      50% { transform: scale(1.05); box-shadow: 0 0 0 1px rgba(255,255,255,0.18) inset, 0 0 70px rgba(91, 226, 178, 0.55); }
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.05); }
     }
     @keyframes orbThink {
       0%, 100% { transform: scale(1) rotate(0deg); }
@@ -166,7 +134,6 @@
       0%, 100% { transform: scale(1); }
       50% { transform: scale(1.07); }
     }
-
     .hint {
       font-size: 0.88rem;
       color: var(--muted);
@@ -174,41 +141,27 @@
       max-width: 20rem;
       line-height: 1.4;
     }
-    .orb.speaking {
-      cursor: pointer;
-    }
-
     .transcript {
       width: 100%;
       max-width: 26rem;
       min-height: 4.5rem;
-      max-height: 28dvh;
+      max-height: 26dvh;
       overflow-y: auto;
       -webkit-overflow-scrolling: touch;
       text-align: center;
       padding: 0.35rem 0.5rem;
     }
-    .line {
-      margin: 0.35rem 0;
-      line-height: 1.45;
-      font-size: 1.02rem;
-      animation: fadeUp 0.28s ease both;
-    }
+    .line { margin: 0.35rem 0; line-height: 1.45; font-size: 1.02rem; }
     .line.user { color: #cfe0ff; font-weight: 500; }
     .line.bot { color: var(--ink); }
     .line.interim { color: var(--muted); font-style: italic; }
     .line.meta { color: var(--muted); font-size: 0.85rem; }
-    @keyframes fadeUp {
-      from { opacity: 0; transform: translateY(6px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-
     .chips {
       display: flex;
       flex-wrap: wrap;
       gap: 0.45rem;
       justify-content: center;
-      min-height: 2.4rem;
+      min-height: 2.2rem;
     }
     .chips[hidden] { display: none !important; }
     .chip {
@@ -231,7 +184,34 @@
       background: rgba(255, 123, 138, 0.15);
       border-color: rgba(255, 123, 138, 0.35);
     }
-
+    .type-row {
+      width: 100%;
+      max-width: 26rem;
+      display: flex;
+      gap: 0.45rem;
+      align-items: center;
+    }
+    .type-row input {
+      flex: 1;
+      min-width: 0;
+      border-radius: 999px;
+      border: 1px solid rgba(237, 242, 255, 0.14);
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--ink);
+      padding: 0.7rem 1rem;
+      font: inherit;
+      outline: none;
+    }
+    .type-row button {
+      border: 0;
+      border-radius: 999px;
+      padding: 0.7rem 1rem;
+      font: inherit;
+      font-weight: 600;
+      background: var(--accent);
+      color: #061018;
+      cursor: pointer;
+    }
     .bottom {
       display: flex;
       flex-direction: column;
@@ -251,21 +231,25 @@
     <div class="top">
       <div class="brand">Filofax Talk</div>
       <div class="top-actions">
-        <button type="button" class="pill" id="muteBtn" title="Toggle voice replies">🔊 Voice</button>
-        <button type="button" class="pill" id="clearBtn" title="Clear draft">Clear</button>
+        <button type="button" class="pill" id="muteBtn">🔊 Voice</button>
+        <button type="button" class="pill" id="clearBtn">Clear</button>
       </div>
     </div>
 
     <div class="main">
-      <div class="status" id="status">Tap to talk · interrupt anytime</div>
+      <div class="status" id="status">Tap orb to talk</div>
       <div class="orb-wrap">
         <div class="orb-ring" aria-hidden="true"></div>
         <div class="orb-ring r2" aria-hidden="true"></div>
         <button type="button" class="orb" id="orb" aria-label="Tap to talk"></button>
       </div>
-      <div class="hint" id="hint">You can interrupt while I'm speaking — tap the orb or just talk.</div>
+      <div class="hint" id="hint">Tap once to speak · tap again to send · tap while speaking to interrupt</div>
       <div class="transcript" id="transcript" aria-live="polite"></div>
       <div class="chips" id="chips" hidden></div>
+      <form class="type-row" id="typeForm" autocomplete="off">
+        <input id="typeInput" type="text" placeholder="Or type here…" enterkeyhint="send" />
+        <button type="submit">Send</button>
+      </form>
     </div>
 
     <div class="bottom">
@@ -283,10 +267,12 @@
       return "";
     })();
 
+    function q(name) {
+      return new URLSearchParams(window.location.search || "").get(name) || "";
+    }
+
     function resolveUserId() {
-      const params = new URLSearchParams(window.location.search || "");
-      const raw = params.get("userid") || params.get("user_id") || params.get("userId") || "";
-      const fromUrl = String(raw).trim();
+      const fromUrl = (q("userid") || q("user_id") || q("userId")).trim();
       if (fromUrl) {
         try { sessionStorage.setItem("filofax_user_id", fromUrl); } catch (_) {}
         return fromUrl;
@@ -299,9 +285,7 @@
     }
 
     function resolveTimezone() {
-      const params = new URLSearchParams(window.location.search || "");
-      const raw = params.get("timezone") || params.get("timeZone") || params.get("tz") || "";
-      const fromUrl = String(raw).trim();
+      const fromUrl = (q("timezone") || q("timeZone") || q("tz")).trim();
       if (fromUrl) {
         try { sessionStorage.setItem("filofax_timezone", fromUrl); } catch (_) {}
         return fromUrl;
@@ -320,16 +304,16 @@
     const userId = resolveUserId();
     const timezone = resolveTimezone();
     let pendingEvent = null;
-    let busy = false;       // waiting on API
-    let speaking = false;   // TTS playing — can barge-in
-    let ttsEnabled = true;
+    let busy = false;
+    let speaking = false;
     let listening = false;
+    let ttsEnabled = true;
     let recognition = null;
-    let bargeRecognition = null;
     let finalText = "";
     let interimText = "";
-    let speakGeneration = 0;
-    let bargeArmedAt = 0;
+    let silenceTimer = null;
+    let speakGen = 0;
+    let intentionallyStopping = false;
 
     const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
     const canSpeak = !!window.speechSynthesis;
@@ -342,6 +326,8 @@
     const clearBtn = document.getElementById("clearBtn");
     const chatLink = document.getElementById("chatLink");
     const hintEl = document.getElementById("hint");
+    const typeForm = document.getElementById("typeForm");
+    const typeInput = document.getElementById("typeInput");
 
     chatLink.href = `${API || ""}/${window.location.search || ""}`;
 
@@ -355,8 +341,16 @@
       if (mode) orb.classList.add(mode);
     }
 
+    function idleStatus() {
+      if (!busy && !speaking && !listening) {
+        setOrbMode("");
+        setStatus("Tap orb to talk");
+        hintEl.textContent = "Tap once to speak · tap again to send · tap while speaking to interrupt";
+      }
+    }
+
     function addLine(text, kind = "bot") {
-      if (!text) return;
+      if (!text) return null;
       const el = document.createElement("div");
       el.className = "line " + kind;
       el.textContent = text;
@@ -371,11 +365,10 @@
 
     function showInterim(text) {
       clearInterim();
-      if (!text) return;
-      addLine(text, "interim");
+      if (text) addLine(text, "interim");
     }
 
-    function setChips(items, { confirm = false } = {}) {
+    function setChips(items, confirm = false) {
       chipsEl.innerHTML = "";
       if (!items || !items.length) {
         chipsEl.hidden = true;
@@ -399,102 +392,47 @@
     }
 
     function unlockAudio() {
+      if (!canSpeak) return;
       try {
-        if (!canSpeak) return;
         const u = new SpeechSynthesisUtterance(" ");
         u.volume = 0;
         window.speechSynthesis.speak(u);
       } catch (_) {}
     }
 
-    function stopBargeListener() {
-      try { if (bargeRecognition) bargeRecognition.onresult = null; } catch (_) {}
-      try { if (bargeRecognition) bargeRecognition.stop(); } catch (_) {}
-      bargeRecognition = null;
-    }
-
-    /** Cancel TTS immediately — like ChatGPT voice barge-in. */
     function interruptSpeaking() {
       if (!speaking && !(canSpeak && window.speechSynthesis.speaking)) return false;
-      speakGeneration += 1;
+      speakGen += 1;
       speaking = false;
-      stopBargeListener();
       try { window.speechSynthesis.cancel(); } catch (_) {}
-      setOrbMode("");
       return true;
-    }
-
-    function startBargeListener() {
-      if (!SpeechRecognitionAPI || !speaking) return;
-      stopBargeListener();
-      bargeArmedAt = Date.now() + 700; // ignore echo of our own TTS briefly
-      try {
-        bargeRecognition = new SpeechRecognitionAPI();
-        bargeRecognition.continuous = true;
-        bargeRecognition.interimResults = true;
-        bargeRecognition.lang = "en-US";
-        bargeRecognition.onresult = (event) => {
-          if (!speaking) return;
-          if (Date.now() < bargeArmedAt) return;
-          let chunk = "";
-          for (let i = event.resultIndex; i < event.results.length; i++) {
-            chunk += event.results[i][0].transcript || "";
-          }
-          const text = chunk.trim();
-          // Need a real utterance (avoid TTS echo/noise)
-          if (text.length < 6 && text.split(/\s+/).filter(Boolean).length < 2) return;
-          const kept = text;
-          interruptSpeaking();
-          finalText = kept;
-          interimText = "";
-          showInterim(kept);
-          startListening({ seed: kept, fromBarge: true });
-        };
-        bargeRecognition.onerror = () => {};
-        bargeRecognition.onend = () => {
-          if (speaking) {
-            try { bargeRecognition.start(); } catch (_) {}
-          }
-        };
-        bargeRecognition.start();
-      } catch (_) {
-        bargeRecognition = null;
-      }
     }
 
     function speak(text) {
       if (!ttsEnabled || !canSpeak || !text) {
         speaking = false;
+        idleStatus();
         return Promise.resolve();
       }
-      const gen = ++speakGeneration;
+      const gen = ++speakGen;
       return new Promise((resolve) => {
         try {
           try { window.speechSynthesis.cancel(); } catch (_) {}
           const u = new SpeechSynthesisUtterance(text);
           u.rate = 1.02;
-          const finish = () => {
-            if (gen !== speakGeneration) {
-              resolve();
-              return;
-            }
+          const done = () => {
+            if (gen !== speakGen) { resolve(); return; }
             speaking = false;
-            stopBargeListener();
-            if (!listening && !busy) {
-              setOrbMode("");
-              setStatus("Tap to talk · interrupt anytime");
-              hintEl.textContent = "You can interrupt while I'm speaking — tap the orb or just talk.";
-            }
+            idleStatus();
             resolve();
           };
-          u.onend = finish;
-          u.onerror = finish;
+          u.onend = done;
+          u.onerror = done;
           speaking = true;
           setOrbMode("speaking");
-          setStatus("Speaking… tap or talk to interrupt", "speak");
-          hintEl.textContent = "Interrupt anytime — tap the orb or start talking.";
+          setStatus("Speaking… tap to interrupt", "speak");
+          hintEl.textContent = "Tap the orb anytime to interrupt.";
           window.speechSynthesis.speak(u);
-          startBargeListener();
         } catch (_) {
           speaking = false;
           resolve();
@@ -504,7 +442,13 @@
 
     async function sendChat(message, confirm = false) {
       const text = String(message || "").trim();
-      if (!text || busy) return;
+      if (!text) {
+        setStatus("I didn't catch that — try again", "err");
+        idleStatus();
+        return;
+      }
+      if (busy) return;
+
       busy = true;
       interruptSpeaking();
       stopListening(false);
@@ -513,7 +457,7 @@
       setChips([]);
       setOrbMode("thinking");
       setStatus("Thinking…", "think");
-      hintEl.textContent = "Working with the same Filofax assistant…";
+      hintEl.textContent = "Talking to Filofax assistant…";
 
       try {
         const body = {
@@ -532,25 +476,27 @@
         const raw = await res.text();
         let data = {};
         try { data = raw ? JSON.parse(raw) : {}; } catch (_) {
-          throw new Error(raw.slice(0, 160) || res.statusText);
+          throw new Error(raw.slice(0, 180) || ("HTTP " + res.status));
         }
         if (!res.ok) {
-          throw new Error((data.error && data.error.message) || data.detail || raw.slice(0, 160) || res.statusText);
+          throw new Error(
+            (data.error && data.error.message) ||
+            data.detail ||
+            data.message ||
+            ("HTTP " + res.status)
+          );
         }
 
         if (data.pending_event) pendingEvent = data.pending_event;
-        if (data.event) pendingEvent = null;
-        if (data.intent === "cancel_event") pendingEvent = null;
+        if (data.event || data.intent === "cancel_event") pendingEvent = null;
 
         const reply = data.message || "Okay.";
         addLine(reply, "bot");
 
         if (data.needs_confirmation) {
-          setChips(data.suggested_replies || ["Yes, save", "No"], { confirm: true });
-          hintEl.textContent = "Say yes to save, tap a chip, or interrupt and speak.";
+          setChips(data.suggested_replies || ["Yes, save", "No"], true);
         } else if (data.suggested_replies && data.suggested_replies.length) {
-          setChips(data.suggested_replies);
-          hintEl.textContent = "Tap a suggestion, or interrupt and speak.";
+          setChips(data.suggested_replies, false);
         } else {
           setChips([]);
         }
@@ -558,58 +504,86 @@
         busy = false;
         await speak(reply);
       } catch (err) {
+        console.error("talk sendChat failed", err);
         setStatus(String(err.message || err), "err");
         addLine("Sorry — " + (err.message || "request failed"), "meta");
         setOrbMode("");
       } finally {
         busy = false;
-        if (!speaking && !listening) {
-          setOrbMode("");
-          setStatus("Tap to talk · interrupt anytime");
-        }
+        if (!speaking && !listening) idleStatus();
       }
     }
 
-    function stopListening(send = true) {
+    function clearSilenceTimer() {
+      if (silenceTimer) {
+        clearTimeout(silenceTimer);
+        silenceTimer = null;
+      }
+    }
+
+    function armSilenceSend() {
+      clearSilenceTimer();
+      // After user pauses, auto-send (ChatGPT-like)
+      silenceTimer = setTimeout(() => {
+        if (!listening || busy) return;
+        const text = (finalText + " " + interimText).replace(/\s+/g, " ").trim();
+        if (text) stopListening(true);
+      }, 1400);
+    }
+
+    function stopListening(send) {
+      clearSilenceTimer();
       listening = false;
-      try { if (recognition) recognition.stop(); } catch (_) {}
+      intentionallyStopping = true;
+      try {
+        if (recognition) {
+          recognition.onresult = null;
+          recognition.onerror = null;
+          recognition.onend = null;
+          recognition.stop();
+        }
+      } catch (_) {}
       recognition = null;
       const text = (finalText + " " + interimText).replace(/\s+/g, " ").trim();
       finalText = "";
       interimText = "";
       clearInterim();
+      intentionallyStopping = false;
       if (send && text) sendChat(text);
-      else if (!busy && !speaking) {
-        setOrbMode("");
-        setStatus("Tap to talk · interrupt anytime");
+      else if (send && !text) {
+        setStatus("No speech heard — try again", "err");
+        setTimeout(idleStatus, 1200);
+      } else {
+        idleStatus();
       }
     }
 
-    function startListening({ seed = "", fromBarge = false } = {}) {
+    function startListening() {
       if (!SpeechRecognitionAPI) {
-        setStatus("Speech not supported — use Chrome/Edge, or open text chat", "err");
+        setStatus("Mic speech needs Chrome/Edge — type below instead", "err");
+        typeInput.focus();
         return;
       }
       if (busy) return;
 
       interruptSpeaking();
       unlockAudio();
-      stopBargeListener();
+      stopListening(false);
 
-      finalText = seed || "";
+      finalText = "";
       interimText = "";
       listening = true;
       setOrbMode("listening");
-      setStatus(fromBarge ? "Interrupted — listening…" : "Listening…", "live");
-      hintEl.textContent = "Tap the orb again when you're done.";
-      if (finalText) showInterim(finalText);
+      setStatus("Listening… tap again to send", "live");
+      hintEl.textContent = "Speak now. Tap orb again when finished (or pause ~1s).";
 
       recognition = new SpeechRecognitionAPI();
       recognition.continuous = true;
       recognition.interimResults = true;
-      recognition.lang = "en-US";
+      recognition.lang = navigator.language || "en-US";
 
       recognition.onresult = (event) => {
+        if (!listening) return;
         let interim = "";
         let finalized = "";
         for (let i = event.resultIndex; i < event.results.length; i++) {
@@ -620,32 +594,49 @@
         if (finalized) finalText = (finalText + " " + finalized).trim();
         interimText = interim.trim();
         showInterim((finalText + " " + interimText).trim());
+        armSilenceSend();
       };
 
-      recognition.onerror = () => {
+      recognition.onerror = (event) => {
+        const err = (event && event.error) || "";
+        if (intentionallyStopping || err === "aborted") return;
+        if (err === "no-speech") {
+          // keep listening; Chrome sometimes fires this mid-session
+          return;
+        }
+        if (err === "not-allowed") {
+          listening = false;
+          setStatus("Microphone blocked — allow mic or type below", "err");
+          setOrbMode("");
+          return;
+        }
+        // network / other: try to send what we have
         if (listening) stopListening(true);
       };
+
       recognition.onend = () => {
-        if (listening) {
-          try { recognition.start(); } catch (_) { stopListening(true); }
+        if (!listening || intentionallyStopping) return;
+        // Chrome ends sessions often — restart while user still in listen mode
+        try { recognition.start(); } catch (_) {
+          stopListening(true);
         }
       };
 
       try {
         recognition.start();
-      } catch (_) {
+      } catch (err) {
         listening = false;
-        setStatus("Could not start microphone", "err");
+        setStatus("Could not start mic — type below", "err");
         setOrbMode("");
+        console.error(err);
       }
     }
 
     orb.addEventListener("click", () => {
       unlockAudio();
-      // Barge-in: interrupt AI mid-sentence and start listening
       if (speaking || (canSpeak && window.speechSynthesis.speaking)) {
         interruptSpeaking();
-        startListening({ fromBarge: true });
+        startListening();
         return;
       }
       if (busy) return;
@@ -672,18 +663,25 @@
         await fetch(`${API}/api/events?user_id=${encodeURIComponent(userId)}`, { method: "DELETE" });
       } catch (_) {}
       addLine("Cleared. Let's set up the event. What is the date and time?", "bot");
-      setStatus("Tap to talk · interrupt anytime");
-      setOrbMode("");
+      idleStatus();
     });
 
-    // Warm greeting (same opener as chat)
+    typeForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const text = typeInput.value.trim();
+      if (!text) return;
+      typeInput.value = "";
+      unlockAudio();
+      interruptSpeaking();
+      sendChat(text);
+    });
+
     addLine("Let's set up the event. What is the date and time for this event?", "bot");
-    setStatus("Tap to talk · interrupt anytime");
-    hintEl.textContent = "You can interrupt while I'm speaking — tap the orb or just talk.";
+    idleStatus();
     setTimeout(() => {
       unlockAudio();
       speak("Let's set up the event. What is the date and time for this event?");
-    }, 400);
+    }, 350);
   </script>
 </body>
 </html>
