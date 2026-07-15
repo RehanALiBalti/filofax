@@ -1,4 +1,4 @@
-"""Event / reminder persistence — Firebase `myReminders` when configured, else SQLite."""
+"""Event / reminder persistence — Firebase `Reminders` when configured, else SQLite."""
 
 from __future__ import annotations
 

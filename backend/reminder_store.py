@@ -1,4 +1,4 @@
-"""Firestore persistence for collection `myReminders` (native Filofax app schema)."""
+"""Firestore persistence for collection `Reminders` (native Filofax app schema)."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from backend.firebase_app import get_firestore, is_enabled
 
 
 def collection_name() -> str:
-    return os.getenv("FIRESTORE_REMINDERS_COLLECTION", "myReminders").strip() or "myReminders"
+    return os.getenv("FIRESTORE_REMINDERS_COLLECTION", "Reminders").strip() or "Reminders"
 
 
 def reminder_timezone(name: str | None = None) -> ZoneInfo:

@@ -77,7 +77,7 @@ def get_firestore():
 
 def check_firebase() -> dict[str, Any]:
     project_id = os.getenv("FIREBASE_PROJECT_ID", "").strip()
-    collection = os.getenv("FIRESTORE_REMINDERS_COLLECTION", "myReminders")
+    collection = os.getenv("FIRESTORE_REMINDERS_COLLECTION", "Reminders")
     try:
         import firebase_admin  # noqa: F401
     except ImportError:

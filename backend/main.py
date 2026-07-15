@@ -154,7 +154,7 @@ def api_index() -> dict:
             "list_reminders_by_user": {
                 "method": "GET",
                 "path": "/api/reminders/{userId}",
-                "note": "Firestore myReminders where userId == path",
+                "note": "Firestore Reminders where userId == path",
             },
             "search_events": {"method": "GET", "path": "/api/events/search"},
             "create_event": {"method": "POST", "path": "/api/events"},
@@ -270,7 +270,7 @@ def list_reminders_by_user(
     user_id: str,
     db: Session = Depends(get_db),
 ) -> list[EventOut]:
-    """Get this user's reminders from Firestore `myReminders` (userId == path)."""
+    """Get this user's reminders from Firestore `Reminders` (userId == path)."""
     return [EventOut.model_validate(e) for e in event_service.list_events(db, user_id)]
 
 

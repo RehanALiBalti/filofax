@@ -288,7 +288,7 @@
             "method": "GET",
             "header": [],
             "url": "{{baseUrl}}/api/reminders/{{userId}}",
-            "description": "Firestore myReminders where userId == path. Preferred for mobile."
+            "description": "Firestore Reminders where userId == path. Preferred for mobile."
           },
           "event": [
             {

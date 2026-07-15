@@ -11,7 +11,7 @@ python-multipart>=0.0.9
 # Local voice notes (self-hosted STT) — also needs system ffmpeg
 faster-whisper>=1.0.0
 
-# Firestore reminders (collection myReminders)
+# Firestore reminders (collection Reminders)
 firebase-admin>=6.5.0
 
 # LLM: Ollama (qwen2.5:7b) — install Ollama separately, not via pip

@@ -124,7 +124,7 @@ Language is returned as an object, e.g. `{ "code": "ur-Latn", "name": "Roman Urd
 
 ## Reminder storage (Firebase)
 
-When Firebase is configured, reminders are stored in Firestore collection **`myReminders`**.
+When Firebase is configured, reminders are stored in Firestore collection **`Reminders`**.
 
 - List by URL user id: `GET /api/reminders/{userId}`
 - Env template: `deploy/firebase.env.example`
