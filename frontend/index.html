@@ -640,7 +640,34 @@
       return "default";
     }
 
+    /** Resolve timezone from URL: ?timezone=Europe/Vienna (also timeZone / tz) */
+    function resolveTimezone() {
+      const params = new URLSearchParams(window.location.search || "");
+      const raw =
+        params.get("timezone") ||
+        params.get("timeZone") ||
+        params.get("tz") ||
+        "";
+      const fromUrl = String(raw).trim();
+      if (fromUrl) {
+        try {
+          sessionStorage.setItem("filofax_timezone", fromUrl);
+        } catch (_) { /* ignore */ }
+        return fromUrl;
+      }
+      try {
+        const saved = sessionStorage.getItem("filofax_timezone");
+        if (saved && saved.trim()) return saved.trim();
+      } catch (_) { /* ignore */ }
+      try {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Vienna";
+      } catch (_) {
+        return "Europe/Vienna";
+      }
+    }
+
     const userId = resolveUserId();
+    const timezone = resolveTimezone();
     let pendingEvent = null;
 
     const logEl = document.getElementById("log");
@@ -1429,6 +1456,7 @@
         const body = {
           message,
           user_id: userId,
+          timezone,
           confirm: Boolean(confirm),
         };
         if (pendingEvent) body.pending_event = pendingEvent;
@@ -1466,6 +1494,7 @@
         const formData = new FormData();
         formData.append("audio", blob, "note.webm");
         formData.append("user_id", userId);
+        formData.append("timezone", timezone);
         formData.append("confirm", "false");
         if (pendingEvent) {
           formData.append("pending_event", JSON.stringify(pendingEvent));

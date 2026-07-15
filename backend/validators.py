@@ -323,7 +323,9 @@ def merge_pending_event(
     return merged
 
 
-def pending_event_to_create_kwargs(pending: dict[str, Any], user_id: str) -> dict[str, Any]:
+def pending_event_to_create_kwargs(
+    pending: dict[str, Any], user_id: str, timezone: str | None = None
+) -> dict[str, Any]:
     event_date = _parse_date(pending.get("date"))
     if event_date is None:
         raise ValueError("date is required")
@@ -336,6 +338,7 @@ def pending_event_to_create_kwargs(pending: dict[str, Any], user_id: str) -> dic
         raise ValueError("label is required")
     if category is None:
         raise ValueError("category is required")
+    tz = timezone or pending.get("timezone") or pending.get("timeZone")
     return {
         "user_id": user_id,
         "event_date": event_date,
@@ -343,4 +346,5 @@ def pending_event_to_create_kwargs(pending: dict[str, Any], user_id: str) -> dic
         "label": label,
         "category": category,
         "notes": _clean_str(pending.get("notes")),
+        "timezone": (str(tz).strip() if tz else None) or None,
     }

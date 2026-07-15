@@ -62,6 +62,7 @@ class EventOut(BaseModel):
 
 class EventCreate(BaseModel):
     user_id: str = "default"
+    timezone: Optional[str] = None
     event_date: date
     event_time: Optional[time] = None
     label: str = Field(min_length=1, max_length=255)
@@ -75,11 +76,13 @@ class EventUpdate(BaseModel):
     label: Optional[str] = Field(default=None, min_length=1, max_length=255)
     category: Optional[Category] = None
     notes: Optional[str] = None
+    timezone: Optional[str] = None
 
 
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
     user_id: str = "default"
+    timezone: Optional[str] = None
     confirm: bool = False
     pending_event: Optional[dict[str, Any]] = None
 

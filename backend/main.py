@@ -212,6 +212,7 @@ def assistant_chat(body: ChatRequest, db: Session = Depends(get_db)) -> Assistan
         user_id=body.user_id or DEFAULT_USER_ID,
         confirm=body.confirm,
         pending_event=body.pending_event,
+        timezone=body.timezone,
     )
     return result.model_copy(update={"input_mode": "text"})
 
@@ -220,6 +221,7 @@ def assistant_chat(body: ChatRequest, db: Session = Depends(get_db)) -> Assistan
 async def assistant_voice(
     audio: UploadFile = File(...),
     user_id: str = Form(DEFAULT_USER_ID),
+    timezone: Optional[str] = Form(None),
     confirm: bool = Form(False),
     pending_event: Optional[str] = Form(None),
     db: Session = Depends(get_db),
@@ -258,6 +260,7 @@ async def assistant_voice(
         user_id=user_id or DEFAULT_USER_ID,
         confirm=confirm,
         pending_event=pending,
+        timezone=timezone,
     )
     return result.model_copy(update={"transcript": transcript, "input_mode": "voice"})
 
@@ -315,6 +318,7 @@ def create_event(body: EventCreate, db: Session = Depends(get_db)) -> EventOut:
         label=body.label,
         category=body.category,
         notes=body.notes,
+        timezone=body.timezone,
     )
     return EventOut.model_validate(event)
 

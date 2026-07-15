@@ -25,6 +25,7 @@ def create_event(
     category: str,
     event_time: Optional[time] = None,
     notes: Optional[str] = None,
+    timezone: Optional[str] = None,
 ) -> ReminderLike:
     if firebase_enabled():
         return reminder_store.create_reminder(
@@ -34,6 +35,7 @@ def create_event(
             category=category,
             event_time=event_time,
             notes=notes,
+            timezone=timezone,
         )
     assert db is not None
     event = Event(

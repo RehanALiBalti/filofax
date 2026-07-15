@@ -67,11 +67,19 @@ POST /api/assistant/chat
 }
 ```
 
-5. Pass the app user in the page URL so chat saves under that id:
+5. Pass the app user **and timezone** in the page URL so chat saves under that id:
 
-`https://filofax.buzzwaretech.com/?userid=YOUR_FIREBASE_UID`
+```
+https://filofax.buzzwaretech.com/?userid=9Ty4Hx2dcfZ68dW3vNG4EF3QtKT2&timezone=Europe/Vienna
+```
 
-Also accepted: `user_id`, `userId`. Frontend sends this as `user_id` on every chat/voice/clear call. Firestore `myReminders.userId` matches this value.
+| Query | Also accepts | Example |
+|-------|--------------|---------|
+| `userid` | `user_id`, `userId` | Firebase Auth UID |
+| `timezone` | `timeZone`, `tz` | `Europe/Vienna`, `Asia/Karachi` |
+
+If timezone missing → browser timezone, else `Europe/Vienna`.  
+Frontend sends both as `user_id` + `timezone` on every chat/voice call. Firestore gets `userId` + `timeZone`.
 
 ## Reminders (Firebase `myReminders`)
 
@@ -85,6 +93,9 @@ Example: `GET /api/reminders/abc123FirebaseUid`
 → only documents in Firestore collection **`myReminders`** where **`userId == abc123FirebaseUid`**.
 
 Chat save (`POST /api/assistant/chat` confirm) and `POST /api/events` also write into `myReminders` when Firebase env is configured.
+
+Native document fields: `id`, `image`, `insertDate`, `isArchive`, `isDairy`, `isSent`, `notes`, `sdate`, `sdisplaydate`, `sdisplaymonth`, `sdisplayyear`, `smonth`, `ssdate`, `ssdisplaydate`, `status`, `syear`, `timeZone`, `title`, `type`, `userId`.
+Timezone default: `Europe/Vienna` (`FIRESTORE_REMINDER_TIMEZONE`).
 
 | Method | Path | Notes |
 |--------|------|--------|

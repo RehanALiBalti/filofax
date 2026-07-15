@@ -261,9 +261,12 @@ class AssistantService:
         user_id: str,
         confirm: bool = False,
         pending_event: dict[str, Any] | None = None,
+        timezone: str | None = None,
     ) -> AssistantResponse:
         text = message.strip()
         lang = default_language()
+        tz = (timezone or "").strip() or None
+        self._request_timezone = tz
 
         if not text and not confirm:
             return AssistantResponse(
@@ -910,7 +913,11 @@ class AssistantService:
             )
 
         try:
-            kwargs = pending_event_to_create_kwargs(_clean_event(pending), user_id)
+            kwargs = pending_event_to_create_kwargs(
+                _clean_event(pending),
+                user_id,
+                timezone=getattr(self, "_request_timezone", None),
+            )
         except ValueError:
             return self._ask_next(
                 pending, lang, confidence=confidence, ai_result=ai_result, retry=True, user_id=user_id
