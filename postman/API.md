@@ -11,6 +11,11 @@ All app traffic is **JSON** (`Content-Type: application/json`), except voice (`m
 **Local:** `http://127.0.0.1:8002`  
 **Production:** `https://filofax.buzzwaretech.com`
 
+| UI | URL |
+|----|-----|
+| Text chat | `/` or `/?userid=…&timezone=…` |
+| Talk (voice orb) | `/talk?userid=…&timezone=…` |
+
 ## Chat (main mobile path)
 
 ```http

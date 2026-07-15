@@ -118,6 +118,15 @@ def root() -> FileResponse:
     return FileResponse(index)
 
 
+@app.get("/talk")
+def talk_mode() -> FileResponse:
+    """ChatGPT-style voice orb UI — same assistant API as text chat."""
+    talk = FRONTEND_DIR / "talk.html"
+    if not talk.exists():
+        raise HTTPException(status_code=404, detail="Talk UI not found")
+    return FileResponse(talk)
+
+
 if FRONTEND_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
 
