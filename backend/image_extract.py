@@ -49,12 +49,45 @@ def _clean_title(value: Any) -> str | None:
     if not text or text.lower() in {"null", "none", "n/a", "-"}:
         return None
     # Drop template chrome often misread as title
-    if re.fullmatch(r"(june|july|may|april|march|sunday|monday|important|blueline)", text, re.I):
+    if re.fullmatch(
+        r"(june|july|may|april|march|sunday|monday|tuesday|wednesday|thursday|"
+        r"friday|saturday|important|blueline|weather|to\s*do)",
+        text,
+        re.I,
+    ):
+        return None
+    # Strip leading bullets / time prefixes accidentally glued on
+    text = re.sub(r"^[\-\*\u2022]+\s*", "", text)
+    text = re.sub(r"^\d{1,2}[:.]\d{2}\s*", "", text)
+    text = text.strip().strip("\"'")
+    if not text:
         return None
     words = text.split()
     if len(words) > 12:
         text = " ".join(words[:12])
     return text[:255]
+
+
+def _pick_title_from_payload(payload: dict[str, Any]) -> str | None:
+    """Prefer handwritten entry fields; also salvage from notes."""
+    for key in (
+        "entry_text",
+        "title",
+        "label",
+        "handwritten_text",
+        "note_text",
+        "event_title",
+        "event_name",
+    ):
+        got = _clean_title(payload.get(key))
+        if got:
+            return got
+    notes = _clean_notes(payload.get("notes"))
+    if notes and re.search(r"\b(meeting|boss|doctor|call|dentist)\b", notes, re.I):
+        # First sentence / line as title if notes holds the entry
+        first = re.split(r"[\n.]", notes, maxsplit=1)[0].strip()
+        return _clean_title(first) or notes[:80]
+    return None
 
 
 def _clean_notes(value: Any) -> str | None:
@@ -229,10 +262,11 @@ def normalize_vision_payload(
     today: date | None = None,
 ) -> dict[str, Any]:
     """Map model JSON → draft slots (label/date/time/category/notes)."""
-    title = _clean_title(
-        payload.get("entry_text") or payload.get("title") or payload.get("label")
-    )
+    title = _pick_title_from_payload(payload)
     notes = _clean_notes(payload.get("notes"))
+    # If notes duplicated the title, keep notes only when different
+    if notes and title and notes.lower().strip() == title.lower().strip():
+        notes = None
     cat = _normalize_category(
         None if payload.get("category") is None else str(payload.get("category"))
     )
@@ -311,14 +345,28 @@ def _merge_focus_retries(
     *,
     timezone: str | None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Focused vision passes for missing date/time (common LLaVA failures)."""
+    """Focused vision passes for missing title/date/time (common LLaVA failures)."""
     merged = dict(payload)
 
-    need_time = not draft.get("time") and bool(draft.get("label") or draft.get("date"))
+    need_title = not draft.get("label")
+    # Title first — without it other fields are less useful to the user
+    if need_title:
+        title_payload = _safe_focus_extract(
+            service, image_bytes, timezone=timezone, focus="title"
+        )
+        if title_payload:
+            for key in ("entry_text", "title", "label", "handwritten_text", "confidence"):
+                if title_payload.get(key) not in (None, "", "null"):
+                    merged[key] = title_payload.get(key)
+            merged["_title_retry"] = title_payload
+            draft = normalize_vision_payload(merged)["draft"]
+
+    need_time = not draft.get("time") and bool(
+        draft.get("label") or draft.get("date") or need_title
+    )
     need_date = not draft.get("date") and bool(draft.get("label") or draft.get("time"))
-    # Also retry date when header parts missing even if a (possibly wrong) date exists
     weak_date = draft.get("date") and not (
-        payload.get("header_month") and payload.get("header_day")
+        merged.get("header_month") and merged.get("header_day")
     )
 
     if need_time:

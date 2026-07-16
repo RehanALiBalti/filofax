@@ -16,6 +16,7 @@ from backend.ai.vision_prompts import (
     VISION_PROMPT_VERSION,
     VISION_SYSTEM_PROMPT,
     VISION_TIME_FOCUS_PROMPT,
+    VISION_TITLE_FOCUS_PROMPT,
     build_vision_user_prompt,
 )
 from backend.config import VISION_MODEL
@@ -109,7 +110,14 @@ class AIService:
     ) -> dict[str, Any]:
         """Vision model → raw JSON dict with title/date/time/category/notes."""
         today = today or date.today()
-        if focus == "time":
+        if focus == "title":
+            system = VISION_TITLE_FOCUS_PROMPT
+            user_prompt = (
+                "Read ONLY the handwritten or pink/colored note in the schedule. "
+                "Return JSON with entry_text and title set to that exact note."
+            )
+            max_tokens = 160
+        elif focus == "time":
             system = VISION_TIME_FOCUS_PROMPT
             user_prompt = (
                 "Look at the handwritten note on this planner page. "

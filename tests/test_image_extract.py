@@ -12,10 +12,12 @@ class _FakeVisionAI:
         payload: dict,
         time_payload: dict | None = None,
         date_payload: dict | None = None,
+        title_payload: dict | None = None,
     ) -> None:
         self.payload = payload
         self.time_payload = time_payload
         self.date_payload = date_payload
+        self.title_payload = title_payload
 
     def extract_from_image(
         self,
@@ -26,6 +28,8 @@ class _FakeVisionAI:
         today=None,
     ):
         assert image_bytes
+        if focus == "title" and self.title_payload is not None:
+            return dict(self.title_payload)
         if focus == "time" and self.time_payload is not None:
             return dict(self.time_payload)
         if focus == "date" and self.date_payload is not None:
@@ -88,6 +92,38 @@ def test_meeting_defaults_to_appointment_when_not_important():
 def test_normalize_hour_only_time_slot():
     out = normalize_vision_payload({"title": "Gym", "time": "11", "confidence": 0.7})
     assert out["draft"]["time"] == "11:00"
+
+
+def test_title_retry_fills_handwritten_note():
+    user = "test-img-title-retry"
+    clear_draft(user)
+    ai = _FakeVisionAI(
+        {
+            "entry_text": None,
+            "title": None,
+            "header_month": "June",
+            "header_day": 22,
+            "calendar_year": 2025,
+            "time_row": "11:00",
+            "confidence": 0.4,
+        },
+        title_payload={
+            "entry_text": "meeting with boss",
+            "title": "meeting with boss",
+            "confidence": 0.92,
+        },
+    )
+    result = extract_reminder_from_image(
+        b"fake-image-bytes",
+        user_id=user,
+        ai=ai,  # type: ignore[arg-type]
+    )
+    assert result.ok
+    assert result.title == "meeting with boss"
+    assert result.date == "2025-06-22"
+    assert result.time == "11:00"
+    assert result.category == "Important"
+    clear_draft(user)
 
 
 def test_time_and_date_retry_fill_missing():

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-VISION_PROMPT_VERSION = "v3"
+VISION_PROMPT_VERSION = "v4"
 
 # Ask for easy visual facts — Python composes final date/time/category.
 VISION_SYSTEM_PROMPT = """You read a photo of a daily planner / diary page (often Blueline).
@@ -27,8 +27,11 @@ JSON schema:
 }
 
 HOW TO READ THE PAGE:
-1) entry_text / title = handwritten or colored note only (e.g. "meeting with my boss").
-   Ignore printed template words like June, Sunday, Important, weather labels.
+1) entry_text AND title = the handwritten / pink / colored ink note in the schedule grid.
+   THIS IS THE MOST IMPORTANT FIELD. Example: "meeting with my boss" or "meeting with boss".
+   Copy the note wording as closely as possible. Do not leave entry_text null if any
+   handwritten/colored schedule note is visible.
+   Ignore printed template words: June, Sunday, Important, weather, °F, °C, Blueline, QR.
 2) header_month = large month name at top-left (e.g. "June").
 3) header_day = large day number next to month (e.g. 22).
 4) calendar_year = year from mini-calendars if shown (e.g. "June 2025" → 2025).
@@ -41,6 +44,26 @@ HOW TO READ THE PAGE:
    - Important box checked OR note like "boss" / "important" / "urgent" → "Important"
    - Else meeting/doctor/call/client → "Appointment"
    - Else task/errand → "To Do"
+"""
+
+VISION_TITLE_FOCUS_PROMPT = """Focus ONLY on the handwritten or colored note written in the daily schedule grid.
+
+Ignore printed template text (month, day number, Sunday, weather icons, Important box label, Blueline).
+
+Return ONLY JSON:
+{
+  "entry_text": string|null,
+  "title": string|null,
+  "confidence": number
+}
+
+Examples:
+- Pink handwriting "meeting with my boss" →
+  {"entry_text": "meeting with my boss", "title": "meeting with my boss", "confidence": 0.93}
+- "meeting with boss" →
+  {"entry_text": "meeting with boss", "title": "meeting with boss", "confidence": 0.9}
+
+If there is truly no handwritten note, return nulls with low confidence.
 """
 
 VISION_TIME_FOCUS_PROMPT = """Focus ONLY on the handwritten/colored note on this planner.
@@ -82,6 +105,8 @@ def build_vision_user_prompt(*, today_iso: str, weekday: str, timezone: str | No
         f"Context only (do not use as the event date unless the page has no header): "
         f"today is {weekday}, {today_iso}. Timezone: {tz}.\n"
         "Extract planner facts as JSON. "
-        "Priority fields: entry_text, header_month, header_day, calendar_year, time_row.\n"
+        "MOST IMPORTANT: entry_text = the handwritten/colored schedule note "
+        '(e.g. "meeting with my boss"). Do not skip it.\n'
+        "Also: header_month, header_day, calendar_year, time_row.\n"
         "Return JSON only."
     )
