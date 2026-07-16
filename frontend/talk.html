@@ -231,19 +231,20 @@
     <div class="top">
       <div class="brand">Filofax Talk</div>
       <div class="top-actions">
+        <button type="button" class="pill" id="autoBtn" title="Hands-free conversation">🎙 Auto</button>
         <button type="button" class="pill" id="muteBtn">🔊 Voice</button>
         <button type="button" class="pill" id="clearBtn">Clear</button>
       </div>
     </div>
 
     <div class="main">
-      <div class="status" id="status">Tap orb to talk</div>
+      <div class="status" id="status">Starting…</div>
       <div class="orb-wrap">
         <div class="orb-ring" aria-hidden="true"></div>
         <div class="orb-ring r2" aria-hidden="true"></div>
         <button type="button" class="orb" id="orb" aria-label="Tap to talk"></button>
       </div>
-      <div class="hint" id="hint">Tap once to speak · tap again to send · tap while speaking to interrupt</div>
+      <div class="hint" id="hint">Hands-free — speak naturally, I'll reply automatically</div>
       <div class="transcript" id="transcript" aria-live="polite"></div>
       <div class="chips" id="chips" hidden></div>
       <form class="type-row" id="typeForm" autocomplete="off">
@@ -312,8 +313,12 @@
     let finalText = "";
     let interimText = "";
     let silenceTimer = null;
+    let autoListenTimer = null;
     let speakGen = 0;
     let intentionallyStopping = false;
+    let autoMode = true;
+    let micReady = false;
+    const SILENCE_MS = 850;
 
     const SpeechRecognitionAPI = window.SpeechRecognition || window.webkitSpeechRecognition;
     const canSpeak = !!window.speechSynthesis;
@@ -322,6 +327,7 @@
     const orb = document.getElementById("orb");
     const transcriptEl = document.getElementById("transcript");
     const chipsEl = document.getElementById("chips");
+    const autoBtn = document.getElementById("autoBtn");
     const muteBtn = document.getElementById("muteBtn");
     const clearBtn = document.getElementById("clearBtn");
     const chatLink = document.getElementById("chatLink");
@@ -341,11 +347,35 @@
       if (mode) orb.classList.add(mode);
     }
 
+    function clearAutoListenTimer() {
+      if (autoListenTimer) {
+        clearTimeout(autoListenTimer);
+        autoListenTimer = null;
+      }
+    }
+
+    function scheduleAutoListen(delay = 400) {
+      if (!autoMode || busy || listening || speaking) return;
+      clearAutoListenTimer();
+      autoListenTimer = setTimeout(() => {
+        autoListenTimer = null;
+        if (!autoMode || busy || listening || speaking) return;
+        startListening();
+      }, delay);
+    }
+
     function idleStatus() {
-      if (!busy && !speaking && !listening) {
-        setOrbMode("");
+      if (busy || speaking || listening) return;
+      setOrbMode("");
+      if (autoMode) {
+        setStatus(micReady ? "Ready — speak anytime" : "Tap orb once to allow mic");
+        hintEl.textContent = micReady
+          ? "Hands-free on — just talk. Tap orb only to interrupt."
+          : "One tap for microphone, then I'll listen automatically.";
+        scheduleAutoListen(micReady ? 350 : 1200);
+      } else {
         setStatus("Tap orb to talk");
-        hintEl.textContent = "Tap once to speak · tap again to send · tap while speaking to interrupt";
+        hintEl.textContent = "Tap to speak · tap again to send · tap while speaking to interrupt";
       }
     }
 
@@ -408,10 +438,22 @@
       return true;
     }
 
+    function afterAssistantTurn() {
+      if (autoMode) {
+        setOrbMode("");
+        setStatus("Your turn — speak anytime", "live");
+        hintEl.textContent = "Listening automatically after I finish…";
+        scheduleAutoListen(300);
+      } else {
+        idleStatus();
+      }
+    }
+
     function speak(text) {
+      clearAutoListenTimer();
       if (!ttsEnabled || !canSpeak || !text) {
         speaking = false;
-        idleStatus();
+        afterAssistantTurn();
         return Promise.resolve();
       }
       const gen = ++speakGen;
@@ -423,7 +465,7 @@
           const done = () => {
             if (gen !== speakGen) { resolve(); return; }
             speaking = false;
-            idleStatus();
+            afterAssistantTurn();
             resolve();
           };
           u.onend = done;
@@ -431,10 +473,13 @@
           speaking = true;
           setOrbMode("speaking");
           setStatus("Speaking… tap to interrupt", "speak");
-          hintEl.textContent = "Tap the orb anytime to interrupt.";
+          hintEl.textContent = autoMode
+            ? "Tap orb to interrupt — I'll listen again when I finish."
+            : "Tap the orb anytime to interrupt.";
           window.speechSynthesis.speak(u);
         } catch (_) {
           speaking = false;
+          afterAssistantTurn();
           resolve();
         }
       });
@@ -508,9 +553,10 @@
         setStatus(String(err.message || err), "err");
         addLine("Sorry — " + (err.message || "request failed"), "meta");
         setOrbMode("");
+        if (autoMode) scheduleAutoListen(900);
+        else idleStatus();
       } finally {
         busy = false;
-        if (!speaking && !listening) idleStatus();
       }
     }
 
@@ -521,18 +567,23 @@
       }
     }
 
+    function currentTranscript() {
+      return (finalText + " " + interimText).replace(/\s+/g, " ").trim();
+    }
+
     function armSilenceSend() {
+      const text = currentTranscript();
+      if (!text) return;
       clearSilenceTimer();
-      // After user pauses, auto-send (ChatGPT-like)
       silenceTimer = setTimeout(() => {
         if (!listening || busy) return;
-        const text = (finalText + " " + interimText).replace(/\s+/g, " ").trim();
-        if (text) stopListening(true);
-      }, 1400);
+        if (currentTranscript()) stopListening(true);
+      }, SILENCE_MS);
     }
 
     function stopListening(send) {
       clearSilenceTimer();
+      clearAutoListenTimer();
       listening = false;
       intentionallyStopping = true;
       try {
@@ -544,16 +595,21 @@
         }
       } catch (_) {}
       recognition = null;
-      const text = (finalText + " " + interimText).replace(/\s+/g, " ").trim();
+      const text = currentTranscript();
       finalText = "";
       interimText = "";
       clearInterim();
       intentionallyStopping = false;
       if (send && text) sendChat(text);
       else if (send && !text) {
-        setStatus("No speech heard — try again", "err");
-        setTimeout(idleStatus, 1200);
-      } else {
+        if (autoMode) {
+          setStatus("Didn't catch that — listening again", "err");
+          scheduleAutoListen(500);
+        } else {
+          setStatus("No speech heard — try again", "err");
+          setTimeout(idleStatus, 1200);
+        }
+      } else if (!send && !busy && !speaking) {
         idleStatus();
       }
     }
@@ -564,8 +620,9 @@
         typeInput.focus();
         return;
       }
-      if (busy) return;
+      if (busy || speaking) return;
 
+      clearAutoListenTimer();
       interruptSpeaking();
       unlockAudio();
       stopListening(false);
@@ -574,8 +631,10 @@
       interimText = "";
       listening = true;
       setOrbMode("listening");
-      setStatus("Listening… tap again to send", "live");
-      hintEl.textContent = "Speak now. Tap orb again when finished (or pause ~1s).";
+      setStatus("Listening…", "live");
+      hintEl.textContent = autoMode
+        ? "Speak now — I'll send when you pause."
+        : "Speak now. Tap orb again when finished.";
 
       recognition = new SpeechRecognitionAPI();
       recognition.continuous = true;
@@ -624,10 +683,13 @@
 
       try {
         recognition.start();
+        micReady = true;
       } catch (err) {
         listening = false;
-        setStatus("Could not start mic — type below", "err");
+        micReady = false;
+        setStatus("Tap orb once to allow microphone", "err");
         setOrbMode("");
+        hintEl.textContent = "Browser needs one tap before hands-free listening.";
         console.error(err);
       }
     }
@@ -644,6 +706,16 @@
       else startListening();
     });
 
+    autoBtn.addEventListener("click", () => {
+      autoMode = !autoMode;
+      autoBtn.textContent = autoMode ? "🎙 Auto" : "🎙 Manual";
+      autoBtn.classList.toggle("off", !autoMode);
+      if (autoMode && !busy && !speaking && !listening) scheduleAutoListen(200);
+      else if (!autoMode) clearAutoListenTimer();
+      idleStatus();
+      unlockAudio();
+    });
+
     muteBtn.addEventListener("click", () => {
       ttsEnabled = !ttsEnabled;
       muteBtn.textContent = ttsEnabled ? "🔊 Voice" : "🔇 Muted";
@@ -654,6 +726,7 @@
 
     clearBtn.addEventListener("click", async () => {
       unlockAudio();
+      clearAutoListenTimer();
       interruptSpeaking();
       stopListening(false);
       pendingEvent = null;
@@ -662,8 +735,9 @@
       try {
         await fetch(`${API}/api/events?user_id=${encodeURIComponent(userId)}`, { method: "DELETE" });
       } catch (_) {}
-      addLine("Cleared. Let's set up the event. What is the date and time?", "bot");
-      idleStatus();
+      const cleared = "Cleared. Let's set up the event. What is the date and time?";
+      addLine(cleared, "bot");
+      speak(cleared);
     });
 
     typeForm.addEventListener("submit", (e) => {
@@ -676,11 +750,12 @@
       sendChat(text);
     });
 
-    addLine("Let's set up the event. What is the date and time for this event?", "bot");
-    idleStatus();
+    const welcome = "Let's set up the event. What is the date and time for this event?";
+    addLine(welcome, "bot");
+    setStatus("Starting…", "think");
     setTimeout(() => {
       unlockAudio();
-      speak("Let's set up the event. What is the date and time for this event?");
+      speak(welcome);
     }, 350);
   </script>
 </body>

@@ -24,7 +24,12 @@ from backend.language import (
     smalltalk_message,
     unclear_message,
 )
-from backend.chat_style import is_affirmative, is_negative, suggested_replies_for
+from backend.chat_style import is_affirmative, is_negative, suggested_replies_for, chat_only_message
+from backend.conversation import (
+    draft_has_meaningful_progress,
+    is_conversational_message,
+    is_declining_event_setup,
+)
 from backend.models import AssistantResponse, EventOut, LanguageInfo
 from backend.draft_store import clear_draft, merge_client_pending, save_draft
 from backend.slot_fill import (
@@ -406,6 +411,16 @@ class AssistantService:
             if gate is not None:
                 return gate
 
+        if text and is_conversational_message(text) and not is_fresh_create_request(text):
+            if draft and missing_fields(draft):
+                return self._continue_slot_fill(db, user_id=user_id, text=text, draft=draft)
+            return self._handle_conversational(
+                user_id=user_id,
+                text=text,
+                draft=draft,
+                language=lang,
+            )
+
         # --- Active create draft: fill next missing slot, keep asking until clear ---
         if draft and missing_fields(draft):
             return self._continue_slot_fill(db, user_id=user_id, text=text, draft=draft)
@@ -449,6 +464,13 @@ class AssistantService:
         if validated.intent in ("unclear", "clarify", "unknown"):
             # If message looks like create intent keywords, start draft
             lower = text.lower()
+            if is_conversational_message(text) and not is_fresh_create_request(text):
+                return self._handle_conversational(
+                    user_id=user_id,
+                    text=text,
+                    draft=None,
+                    language=language,
+                )
             create_hints = (
                 "add",
                 "create",
@@ -488,6 +510,48 @@ class AssistantService:
             ai=ai_result,
         )
 
+    def _handle_conversational(
+        self,
+        *,
+        user_id: str,
+        text: str,
+        draft: dict[str, Any] | None,
+        language: LanguageInfo,
+    ) -> AssistantResponse:
+        declining = is_declining_event_setup(text)
+        meaningful = draft_has_meaningful_progress(draft)
+        if declining or not meaningful:
+            clear_draft(user_id)
+            return AssistantResponse(
+                ok=True,
+                intent="clarify",
+                language=language,
+                confidence=1.0,
+                message=chat_only_message(
+                    language,
+                    user_id=user_id,
+                    text=text,
+                    declining=declining,
+                ),
+                pending_event=None,
+                requires_clarification=False,
+            )
+        save_draft(user_id, draft)
+        return AssistantResponse(
+            ok=True,
+            intent="clarify",
+            language=language,
+            confidence=1.0,
+            message=chat_only_message(
+                language,
+                user_id=user_id,
+                text=text,
+                nudge=True,
+            ),
+            pending_event=draft,
+            requires_clarification=False,
+        )
+
     def _continue_slot_fill(
         self,
         db: Session,
@@ -499,6 +563,14 @@ class AssistantService:
         language = default_language()
         field = next_missing(draft)
         assert field is not None
+
+        if is_conversational_message(text):
+            return self._handle_conversational(
+                user_id=user_id,
+                text=text,
+                draft=draft,
+                language=language,
+            )
 
         # Soft acks / thanks — keep draft and re-ask the same field
         if is_soft_ack(text):

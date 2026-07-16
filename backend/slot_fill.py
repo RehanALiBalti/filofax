@@ -9,6 +9,7 @@ from typing import Any
 from dateutil import parser as date_parser
 
 from backend.config import ALLOWED_CATEGORIES, ASK_FIELD_ORDER
+from backend.conversation import is_conversational_message
 from backend.language import ask_next_field_message, default_language
 from backend.models import LanguageInfo
 from backend.validators import _normalize_category, _parse_date, _parse_time, merge_pending_event
@@ -616,10 +617,15 @@ def _extract_label(text: str) -> str | None:
         return found
 
     words = t.split()
-    if len(words) <= 6 and not re.match(
-        r"^(can|could|would|please|kindly|i\s+want|i\s+need|yeah|yes|yep)\b",
-        t,
-        flags=re.IGNORECASE,
+    if (
+        len(words) <= 6
+        and not is_conversational_message(t)
+        and not re.match(
+            r"^(can|could|would|please|kindly|i\s+want|i\s+need|yeah|yes|yep|what|who|why|how|when|where|do|are|is)\b",
+            t,
+            flags=re.IGNORECASE,
+        )
+        and not re.search(r"\b(you|your|u)\b", t, flags=re.IGNORECASE)
     ):
         return _clean_label(t)
 
@@ -766,6 +772,8 @@ def apply_slot_reply(
         return updated
 
     if field == "label":
+        if is_conversational_message(text):
+            return None
         # Never steal date / time / category answers as the event name
         if message_has_explicit_time(text) and not message_has_explicit_label(text):
             return None
@@ -820,7 +828,7 @@ def absorb_user_message(
     """
     today = today or date.today()
     text = message.strip()
-    if not text:
+    if not text or is_conversational_message(text):
         return None
 
     before = dict(draft)

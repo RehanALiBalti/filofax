@@ -482,6 +482,87 @@ def smalltalk_message(
     return _pick(opts, user_id=user_id)
 
 
+_CHAT_ONLY: dict[str, list[str]] = {
+    "en": [
+        "I'm here — happy to chat. When you want a reminder, just tell me the date and time.",
+        "Sure, we can talk. Whenever you're ready for an event, say the word.",
+        "Got you. No rush on events — just tell me when you want to set one up.",
+    ],
+    "ur-Latn": [
+        "Bilkul — baat karte hain. Jab reminder chahiye ho, date aur time bata dena.",
+        "Theek hai, koi jaldi nahi. Jab event set karna ho, bas bata dena.",
+    ],
+    "ur": [
+        "میں یہاں ہوں — بات کرتے ہیں۔ جب یاد دہانی چاہیے ہو، تاریخ اور وقت بتائیں۔",
+    ],
+    "hi-Latn": [
+        "Main yahan hoon — baat karte hain. Jab reminder chahiye, date aur time bata dena.",
+    ],
+}
+
+_CHAT_DECLINE: dict[str, list[str]] = {
+    "en": [
+        "No problem — we can just chat. When you want a reminder, tell me anytime.",
+        "Sure thing. No event setup for now — I'm here if you want to talk.",
+        "All good — let's skip the event. Just say when you want to schedule something.",
+    ],
+    "ur-Latn": [
+        "Theek hai — sirf baat karte hain. Jab reminder chahiye ho, bata dena.",
+    ],
+    "ur": [
+        "ٹھیک ہے — بات کرتے ہیں۔ جب یاد دہانی چاہیے ہو، بتائیں۔",
+    ],
+}
+
+_CHAT_DOING: dict[str, list[str]] = {
+    "en": [
+        "Just here helping you stay organized. What's on your mind?",
+        "Right now? Listening to you. What would you like to talk about?",
+        "I'm your Filofax assistant — happy to chat or help with reminders.",
+    ],
+}
+
+_CHAT_NUDGE: dict[str, list[str]] = {
+    "en": [
+        "We can keep chatting. Your draft is still here whenever you want to finish it.",
+        "Sure — say the word when you want to pick the event back up.",
+    ],
+}
+
+
+def chat_only_message(
+    language: LanguageInfo | None = None,
+    *,
+    user_id: str = "default",
+    text: str = "",
+    declining: bool = False,
+    nudge: bool = False,
+) -> str:
+    """Friendly reply without forcing event setup."""
+    bucket = _lang_bucket(language, text)
+    lower = (text or "").strip().lower()
+    if declining:
+        opts = _CHAT_DECLINE.get(bucket) or _CHAT_DECLINE.get("en") or _CHAT_ONLY["en"]
+        return _pick(opts, user_id=user_id, salt="decline")
+    if nudge:
+        opts = _CHAT_NUDGE.get(bucket) or _CHAT_NUDGE.get("en") or _CHAT_ONLY["en"]
+        return _pick(opts, user_id=user_id, salt="nudge")
+    if re.search(r"what are you doing", lower):
+        opts = _CHAT_DOING.get("en", _CHAT_ONLY["en"])
+        return _pick(opts, user_id=user_id, salt="doing")
+    if re.search(r"(who are you|your name|what is your name)", lower):
+        return _pick(
+            [
+                "I'm Filofax — your reminder assistant. Happy to chat too.",
+                "Filofax here — I help with reminders and events, and I can chat.",
+            ],
+            user_id=user_id,
+            salt="who",
+        )
+    opts = _CHAT_ONLY.get(bucket) or _CHAT_ONLY["en"]
+    return _pick(opts, user_id=user_id, salt="chat")
+
+
 def ask_next_field_message(
     field: str,
     language: LanguageInfo | None = None,
