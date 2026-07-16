@@ -6,7 +6,7 @@ langchain-ollama>=0.2.0
 langchain-core>=0.3.0
 sqlalchemy>=2.0.0
 python-dateutil>=2.9.0
-python-multipart>=0.0.9
+pillow>=10.0.0
 
 # Local voice notes (self-hosted STT) — also needs system ffmpeg
 faster-whisper>=1.0.0

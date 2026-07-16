@@ -11,6 +11,7 @@ from backend.chat_style import suggested_replies_for
 from backend.draft_store import clear_draft, save_draft
 from backend.language import default_language
 from backend.models import ImageExtractResponse, LanguageInfo
+from backend.planner_image import analyze_planner_image, crop_header_bytes
 from backend.slot_fill import empty_draft, missing_fields, next_missing
 from backend.validators import _normalize_category, _parse_date, _parse_time
 
@@ -383,9 +384,8 @@ def normalize_vision_payload(
     draft["time"] = parsed_time.strftime("%H:%M") if parsed_time else None
     draft = _scrub_empty_or_leaked(draft, payload)
 
-    # No handwriting: drop invented title/category; keep highlight time + header date
+    # No handwriting: drop invented title; keep highlight time + header date
     if _truthy_handwriting(payload) is False:
-        draft["category"] = None
         draft["label"] = None
         draft["notes"] = None
         highlight_time = None
@@ -395,8 +395,11 @@ def normalize_vision_payload(
             ) or _coerce_vision_time(payload.get("time_row") or payload.get("time"))
         if highlight_time:
             draft["time"] = highlight_time.strftime("%H:%M")
-        elif not _truthy_highlight(payload):
+            # Highlighted row on Blueline → Important (user expectation)
+            draft["category"] = "Important"
+        else:
             draft["time"] = None
+            draft["category"] = None
         if not (payload.get("header_month") and payload.get("header_day")):
             if draft.get("date") in {"2025-06-22", "2026-06-22"}:
                 draft["date"] = None
@@ -432,9 +435,10 @@ def build_extract_message(draft: dict[str, Any], miss: list[str]) -> str:
         )
     # Date + highlighted time, no title yet
     if draft.get("date") and draft.get("time") and not draft.get("label"):
+        cat = f" · Category: {draft['category']}" if draft.get("category") else ""
         return (
-            f"Got the page date ({draft['date']}) and highlighted time ({draft['time']}). "
-            "Add a title, or upload a page with writing on it."
+            f"Got the page date ({draft['date']}) and highlighted time ({draft['time']})"
+            f"{cat}. Add a title, or upload a page with writing on it."
         )
     # Date-only blank planner (header readable, no handwriting / highlight)
     if draft.get("date") and not draft.get("label") and not draft.get("time"):
@@ -614,6 +618,45 @@ def _merge_focus_retries(
     return normalized["draft"], merged
 
 
+def _apply_cv_overrides(payload: dict[str, Any], cv: dict[str, Any]) -> dict[str, Any]:
+    """Computer-vision highlight time always beats LLaVA invents (e.g. 11:00)."""
+    merged = dict(payload)
+    if not cv:
+        return merged
+    if cv.get("highlighted_time_row") or cv.get("time"):
+        t = cv.get("highlighted_time_row") or cv.get("time")
+        merged["has_time_highlight"] = True
+        merged["highlighted_time_row"] = t
+        merged["time"] = t
+        merged["time_row"] = t
+        merged["_cv_time"] = cv
+    return merged
+
+
+def _merge_header_date(
+    service: AIService,
+    image_bytes: bytes,
+    payload: dict[str, Any],
+    *,
+    timezone: str | None,
+) -> dict[str, Any]:
+    """Re-read only the header crop so month/day are not confused with schedule."""
+    merged = dict(payload)
+    header = crop_header_bytes(image_bytes)
+    if not header:
+        return merged
+    date_payload = _safe_focus_extract(
+        service, header, timezone=timezone, focus="date"
+    )
+    if not date_payload:
+        return merged
+    for key in ("header_month", "header_day", "calendar_year", "date", "confidence"):
+        if date_payload.get(key) not in (None, "", "null"):
+            merged[key] = date_payload.get(key)
+    merged["_header_crop_date"] = date_payload
+    return merged
+
+
 def extract_reminder_from_image(
     image_bytes: bytes,
     *,
@@ -625,6 +668,7 @@ def extract_reminder_from_image(
     """Run vision extract → normalize → optional draft for chat confirm."""
     service = ai or ai_service
     lang: LanguageInfo = default_language()
+    cv = analyze_planner_image(image_bytes)
     try:
         payload = service.extract_from_image(image_bytes, timezone=timezone)
     except AIServiceError as exc:
@@ -645,6 +689,9 @@ def extract_reminder_from_image(
             input_mode="image",
         )
 
+    payload = _apply_cv_overrides(payload, cv)
+    payload = _merge_header_date(service, image_bytes, payload, timezone=timezone)
+
     normalized = normalize_vision_payload(payload)
     draft = normalized["draft"]
     conf = normalized["confidence"]
@@ -652,12 +699,15 @@ def extract_reminder_from_image(
     draft, payload = _merge_focus_retries(
         service, image_bytes, draft, payload, timezone=timezone
     )
+    # CV highlight wins again after retries (retries must not resurrect 11:00)
+    payload = _apply_cv_overrides(payload, cv)
     if draft.get("time") or draft.get("date"):
         conf = max(conf, _confidence(payload.get("confidence"), has_any=True))
-    # Re-normalize after merges already done inside retries; refresh conf from facts
     normalized = normalize_vision_payload(payload)
     draft = normalized["draft"]
     conf = max(conf, normalized["confidence"])
+    if cv.get("time"):
+        conf = max(conf, float(cv.get("confidence") or 0.8))
 
     miss = missing_fields(draft)
     nxt = next_missing(draft)

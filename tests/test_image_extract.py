@@ -133,6 +133,7 @@ def test_highlighted_time_kept_without_handwriting():
     assert out["draft"]["label"] is None
     assert out["draft"]["time"] == "09:30"
     assert out["draft"]["date"] == "2025-05-17"
+    assert out["draft"]["category"] == "Important"
 
 
 def test_blank_page_extract_skips_title_hallucination():
@@ -172,6 +173,7 @@ def test_blank_page_extract_skips_title_hallucination():
     assert result.title is None
     assert result.time == "09:30"
     assert result.date == "2025-05-17"
+    assert result.category == "Important"
     assert "highlighted time" in (result.message or "").lower()
     clear_draft(user)
 
