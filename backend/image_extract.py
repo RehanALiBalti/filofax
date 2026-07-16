@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+from datetime import datetime, time
 from typing import Any
 
 from backend.ai.service import AIService, AIServiceError, ai_service
@@ -42,6 +44,62 @@ def _confidence(value: Any, *, has_any: bool) -> float:
     return max(0.0, min(1.0, score))
 
 
+def _coerce_vision_time(value: Any) -> time | None:
+    """Accept planner times: 11:00, 11, 11.00, 11am, 3:30 PM."""
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text or text.lower() in {"null", "none", "n/a", "-"}:
+        return None
+
+    # Hour-only planner row first — dateutil misreads bare "11" as midnight-ish
+    m = re.fullmatch(r"(\d{1,2})", text)
+    if m:
+        hour = int(m.group(1))
+        if 0 <= hour <= 23:
+            return time(hour=hour, minute=0)
+
+    m = re.fullmatch(r"(\d{1,2})[:.](\d{2})\s*(a\.?m\.?|p\.?m\.?)?", text, flags=re.I)
+    if m:
+        hour, minute = int(m.group(1)), int(m.group(2))
+        ampm = (m.group(3) or "").lower().replace(".", "")
+        if ampm.startswith("p") and hour < 12:
+            hour += 12
+        if ampm.startswith("a") and hour == 12:
+            hour = 0
+        if 0 <= hour <= 23 and 0 <= minute <= 59:
+            return time(hour=hour, minute=minute)
+
+    parsed = _parse_time(text)
+    if parsed:
+        return parsed
+
+    try:
+        return datetime.strptime(text, "%H%M").time().replace(second=0, microsecond=0)
+    except ValueError:
+        return None
+
+
+def _pick_time_from_payload(payload: dict[str, Any]) -> time | None:
+    for key in ("time", "time_slot", "start_time", "hour", "schedule_time"):
+        if key in payload and payload.get(key) not in (None, "", "null"):
+            got = _coerce_vision_time(payload.get(key))
+            if got:
+                return got
+    return None
+
+
+def _infer_category(title: str | None, category: str | None) -> str | None:
+    if category:
+        return category
+    if not title:
+        return None
+    lower = title.lower()
+    if re.search(r"\b(meeting|boss|doctor|dentist|interview|appointment|call)\b", lower):
+        return "Appointment"
+    return None
+
+
 def normalize_vision_payload(payload: dict[str, Any]) -> dict[str, Any]:
     """Map model JSON → draft slots (label/date/time/category/notes)."""
     title = _clean_title(payload.get("title") or payload.get("label"))
@@ -49,12 +107,11 @@ def normalize_vision_payload(payload: dict[str, Any]) -> dict[str, Any]:
     cat = _normalize_category(
         None if payload.get("category") is None else str(payload.get("category"))
     )
+    cat = _infer_category(title, cat)
     parsed_date = _parse_date(
         None if payload.get("date") is None else str(payload.get("date"))
     )
-    parsed_time = _parse_time(
-        None if payload.get("time") is None else str(payload.get("time"))
-    )
+    parsed_time = _pick_time_from_payload(payload)
 
     draft = empty_draft()
     draft["label"] = title
@@ -99,6 +156,36 @@ def build_extract_message(draft: dict[str, Any], miss: list[str]) -> str:
     return f"Got it from the photo: {summary}. {ask}"
 
 
+def _merge_time_retry(
+    service: AIService,
+    image_bytes: bytes,
+    draft: dict[str, Any],
+    payload: dict[str, Any],
+    *,
+    timezone: str | None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Second vision pass when title/date found but time missing (common LLaVA miss)."""
+    if draft.get("time") or not (draft.get("label") or draft.get("date")):
+        return draft, payload
+    try:
+        time_payload = service.extract_from_image(
+            image_bytes, timezone=timezone, focus="time"
+        )
+    except AIServiceError:
+        return draft, payload
+    except TypeError:
+        # Test doubles may not accept focus=
+        return draft, payload
+
+    merged = dict(payload)
+    for key in ("time", "time_slot", "start_time", "hour", "confidence"):
+        if time_payload.get(key) not in (None, "", "null"):
+            merged[key] = time_payload.get(key)
+    merged["_time_retry"] = time_payload
+    normalized = normalize_vision_payload(merged)
+    return normalized["draft"], merged
+
+
 def extract_reminder_from_image(
     image_bytes: bytes,
     *,
@@ -133,6 +220,14 @@ def extract_reminder_from_image(
     normalized = normalize_vision_payload(payload)
     draft = normalized["draft"]
     conf = normalized["confidence"]
+
+    draft, payload = _merge_time_retry(
+        service, image_bytes, draft, payload, timezone=timezone
+    )
+    # Recompute confidence if time was recovered
+    if draft.get("time"):
+        conf = max(conf, _confidence(payload.get("confidence"), has_any=True))
+
     miss = missing_fields(draft)
     nxt = next_missing(draft)
     message = build_extract_message(draft, miss)
