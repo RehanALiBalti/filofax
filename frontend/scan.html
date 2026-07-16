@@ -537,11 +537,12 @@
     }
 
     function fillForm(data) {
-      document.getElementById("title").value = data.title || "";
-      document.getElementById("date").value = data.date || "";
-      document.getElementById("time").value = (data.time || "").slice(0, 5);
-      document.getElementById("category").value = data.category || "";
-      document.getElementById("notes").value = data.notes || "";
+      // Always overwrite — never keep previous photo's title/date/time
+      document.getElementById("title").value = data.title != null ? String(data.title) : "";
+      document.getElementById("date").value = data.date != null ? String(data.date) : "";
+      document.getElementById("time").value = data.time ? String(data.time).slice(0, 5) : "";
+      document.getElementById("category").value = data.category != null ? String(data.category) : "";
+      document.getElementById("notes").value = data.notes != null ? String(data.notes) : "";
       const conf = typeof data.confidence === "number"
         ? Math.round(data.confidence * 100) + "% sure"
         : "";
@@ -554,9 +555,19 @@
       page.classList.add("mode-results");
       results.classList.add("show");
       drop.classList.remove("busy");
-      fillForm(data);
+      fillForm({
+        title: data.title ?? null,
+        date: data.date ?? null,
+        time: data.time ?? null,
+        category: data.category ?? null,
+        notes: data.notes ?? null,
+        confidence: data.confidence,
+        message: data.message,
+      });
       pendingEvent = data.pending_event || null;
-      if (data.missing_fields && data.missing_fields.length) {
+      if (!data.title && !data.time) {
+        setStatus(data.message || "No handwritten note found — fill fields manually.", "warn");
+      } else if (data.missing_fields && data.missing_fields.length) {
         setStatus("Fill missing fields, then save.", "warn");
       } else {
         setStatus("Looks good — save when ready.", "ok");

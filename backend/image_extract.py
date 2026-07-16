@@ -8,7 +8,7 @@ from typing import Any
 
 from backend.ai.service import AIService, AIServiceError, ai_service
 from backend.chat_style import suggested_replies_for
-from backend.draft_store import save_draft
+from backend.draft_store import clear_draft, save_draft
 from backend.language import default_language
 from backend.models import ImageExtractResponse, LanguageInfo
 from backend.slot_fill import empty_draft, missing_fields, next_missing
@@ -88,6 +88,58 @@ def _pick_title_from_payload(payload: dict[str, Any]) -> str | None:
         first = re.split(r"[\n.]", notes, maxsplit=1)[0].strip()
         return _clean_title(first) or notes[:80]
     return None
+
+
+# Weak vision models copy these from older prompts onto blank pages
+_PROMPT_LEAK_TITLES = {
+    "meeting with my boss",
+    "meeting with boss",
+    "meeting with my boss.",
+}
+
+
+def _truthy_handwriting(payload: dict[str, Any]) -> bool | None:
+    """True/False if model set the flag; None if absent."""
+    val = payload.get("has_handwritten_entry")
+    if val is None:
+        return None
+    if isinstance(val, str):
+        low = val.strip().lower()
+        if low in {"false", "0", "no", "null"}:
+            return False
+        if low in {"true", "1", "yes"}:
+            return True
+    return bool(val)
+
+
+def _scrub_empty_or_leaked(
+    draft: dict[str, Any],
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    """Blank pages must not keep invented title/time/category."""
+    out = dict(draft)
+    hand = _truthy_handwriting(payload)
+    title = (out.get("label") or "").strip().lower()
+    leaked = title in _PROMPT_LEAK_TITLES
+    has_entry_text = bool(
+        _clean_title(payload.get("entry_text"))
+        or _clean_title(payload.get("handwritten_text"))
+    )
+
+    if hand is False:
+        out["label"] = None
+        out["time"] = None
+        out["category"] = None
+        out["notes"] = None
+        return out
+
+    # Title-only prompt leak (no entry_text) when handwriting flag missing
+    if leaked and hand is None and not has_entry_text:
+        out["label"] = None
+        out["time"] = None
+        out["category"] = None
+        out["notes"] = None
+    return out
 
 
 def _clean_notes(value: Any) -> str | None:
@@ -280,13 +332,28 @@ def normalize_vision_payload(
     draft["category"] = cat
     draft["date"] = parsed_date.isoformat() if parsed_date else None
     draft["time"] = parsed_time.strftime("%H:%M") if parsed_time else None
+    draft = _scrub_empty_or_leaked(draft, payload)
+
+    # If handwriting absent but model still invented old sample date/time, drop time
+    # (header date from month/day is kept when composed from header_* fields)
+    if _truthy_handwriting(payload) is False:
+        draft["time"] = None
+        draft["category"] = None
+        draft["label"] = None
+        draft["notes"] = None
+        if not (payload.get("header_month") and payload.get("header_day")):
+            # Untrusted date string alone on a blank page
+            if draft.get("date") in {"2025-06-22", "2026-06-22"}:
+                draft["date"] = None
 
     has_any = any(draft.get(k) for k in ("date", "time", "category", "label"))
     conf = _confidence(payload.get("confidence"), has_any=has_any)
+    if _truthy_handwriting(payload) is False and not draft.get("label"):
+        conf = min(conf, 0.5)
     # Boost when composed from structured planner facts
     if payload.get("header_month") and payload.get("header_day") and draft.get("date"):
         conf = max(conf, 0.85)
-    if payload.get("time_row") and draft.get("time"):
+    if payload.get("time_row") and draft.get("time") and draft.get("label"):
         conf = max(conf, 0.85)
     return {"draft": draft, "confidence": conf}
 
@@ -308,6 +375,12 @@ def build_extract_message(draft: dict[str, Any], miss: list[str]) -> str:
         return (
             "I couldn't read a clear reminder from this photo. "
             "Try a clearer shot, or tell me the date and time."
+        )
+    # Date-only blank planner (header readable, no handwriting)
+    if draft.get("date") and not draft.get("label") and not draft.get("time"):
+        return (
+            f"I see the page date ({draft['date']}) but no handwritten note. "
+            "Add a title and time, or upload a page with writing on it."
         )
     summary = " · ".join(bits)
     if not miss:
@@ -347,24 +420,91 @@ def _merge_focus_retries(
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Focused vision passes for missing title/date/time (common LLaVA failures)."""
     merged = dict(payload)
+    hand = _truthy_handwriting(payload)
 
-    need_title = not draft.get("label")
-    # Title first — without it other fields are less useful to the user
-    if need_title:
+    # Blank page: never run title/time retries (they hallucinate old samples)
+    if hand is False:
+        date_payload = _safe_focus_extract(
+            service, image_bytes, timezone=timezone, focus="date"
+        )
+        if date_payload:
+            for key in (
+                "header_month",
+                "header_day",
+                "calendar_year",
+                "date",
+                "confidence",
+            ):
+                if date_payload.get(key) not in (None, "", "null"):
+                    merged[key] = date_payload.get(key)
+            merged["_date_retry"] = date_payload
+        merged["has_handwritten_entry"] = False
+        normalized = normalize_vision_payload(merged)
+        return normalized["draft"], merged
+
+    need_title = not draft.get("label") and hand is not False
+    # Only retry title when first pass did not clearly say "no handwriting"
+    if need_title and hand is True:
         title_payload = _safe_focus_extract(
             service, image_bytes, timezone=timezone, focus="title"
         )
         if title_payload:
-            for key in ("entry_text", "title", "label", "handwritten_text", "confidence"):
+            for key in (
+                "entry_text",
+                "title",
+                "label",
+                "handwritten_text",
+                "has_handwritten_entry",
+                "confidence",
+            ):
                 if title_payload.get(key) not in (None, "", "null"):
                     merged[key] = title_payload.get(key)
             merged["_title_retry"] = title_payload
             draft = normalize_vision_payload(merged)["draft"]
+            if _truthy_handwriting(merged) is False:
+                normalized = normalize_vision_payload(merged)
+                return normalized["draft"], merged
 
-    need_time = not draft.get("time") and bool(
-        draft.get("label") or draft.get("date") or need_title
-    )
-    need_date = not draft.get("date") and bool(draft.get("label") or draft.get("time"))
+    # If handwriting still unknown and no title — one careful title check
+    if need_title and hand is None and not draft.get("label"):
+        title_payload = _safe_focus_extract(
+            service, image_bytes, timezone=timezone, focus="title"
+        )
+        if title_payload:
+            for key in (
+                "entry_text",
+                "title",
+                "label",
+                "handwritten_text",
+                "has_handwritten_entry",
+                "confidence",
+            ):
+                if title_payload.get(key) not in (None, "", "null"):
+                    merged[key] = title_payload.get(key)
+            merged["_title_retry"] = title_payload
+            draft = normalize_vision_payload(merged)["draft"]
+            if _truthy_handwriting(merged) is False or not draft.get("label"):
+                # Still blank — only refresh date header, skip time invent
+                date_payload = _safe_focus_extract(
+                    service, image_bytes, timezone=timezone, focus="date"
+                )
+                if date_payload:
+                    for key in (
+                        "header_month",
+                        "header_day",
+                        "calendar_year",
+                        "date",
+                        "confidence",
+                    ):
+                        if date_payload.get(key) not in (None, "", "null"):
+                            merged[key] = date_payload.get(key)
+                if not draft.get("label"):
+                    merged["has_handwritten_entry"] = False
+                normalized = normalize_vision_payload(merged)
+                return normalized["draft"], merged
+
+    need_time = bool(draft.get("label")) and not draft.get("time")
+    need_date = not draft.get("date")
     weak_date = draft.get("date") and not (
         merged.get("header_month") and merged.get("header_day")
     )
@@ -448,10 +588,18 @@ def extract_reminder_from_image(
     nxt = next_missing(draft)
     message = build_extract_message(draft, miss)
 
-    if save_pending and any(draft.get(k) for k in ("date", "time", "category", "label")):
+    has_entry = bool(draft.get("label") or draft.get("time") or draft.get("category"))
+    if save_pending and has_entry:
         save_draft(user_id, draft)
         pending = draft
+    elif save_pending and draft.get("date") and not has_entry:
+        # Blank schedule: keep page date only, clear stale prior draft
+        clear_draft(user_id)
+        pending = {"date": draft["date"], "time": None, "category": None, "label": None, "notes": None}
+        save_draft(user_id, pending)
     else:
+        if save_pending and not has_entry:
+            clear_draft(user_id)
         pending = draft if any(draft.values()) else None
 
     needs_confirm = not miss and bool(pending)
