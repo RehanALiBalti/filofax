@@ -12,6 +12,7 @@ from pydantic import ValidationError
 from backend.ai import ollama_client
 from backend.ai.prompts import PROMPT_VERSION, SYSTEM_PROMPT, build_user_prompt
 from backend.ai.vision_prompts import (
+    VISION_DATE_FOCUS_PROMPT,
     VISION_PROMPT_VERSION,
     VISION_SYSTEM_PROMPT,
     VISION_TIME_FOCUS_PROMPT,
@@ -112,9 +113,16 @@ class AIService:
             system = VISION_TIME_FOCUS_PROMPT
             user_prompt = (
                 "Look at the handwritten note on this planner page. "
-                "Which left-column time row is it on? Return JSON with time only."
+                "Which left-column time row is it on? Return JSON with time_row/time."
             )
             max_tokens = 120
+        elif focus == "date":
+            system = VISION_DATE_FOCUS_PROMPT
+            user_prompt = (
+                "Read only the planner header date: month name, day number, and year "
+                "from mini calendars. Return JSON."
+            )
+            max_tokens = 160
         else:
             system = VISION_SYSTEM_PROMPT
             user_prompt = build_vision_user_prompt(
@@ -122,7 +130,7 @@ class AIService:
                 weekday=today.strftime("%A"),
                 timezone=timezone,
             )
-            max_tokens = 700
+            max_tokens = 800
         try:
             raw_text = ollama_client.generate_from_image(
                 user_prompt,
