@@ -107,7 +107,7 @@ def test_blank_page_does_not_keep_leaked_meeting_title():
             "time_row": "11:00",
             "time": "11:00",
             "category": "Important",
-            "date": "2025-06-22",
+            "date": "2023-05-17",
             "confidence": 0.9,
         }
     )
@@ -115,6 +115,65 @@ def test_blank_page_does_not_keep_leaked_meeting_title():
     assert out["draft"]["time"] is None
     assert out["draft"]["category"] is None
     assert out["draft"]["date"] == "2025-05-17"
+
+
+def test_highlighted_time_kept_without_handwriting():
+    out = normalize_vision_payload(
+        {
+            "has_handwritten_entry": False,
+            "has_time_highlight": True,
+            "highlighted_time_row": "9:30",
+            "header_month": "May",
+            "header_day": 17,
+            "calendar_year": 2025,
+            "date": "2023-05-17",
+            "confidence": 0.8,
+        }
+    )
+    assert out["draft"]["label"] is None
+    assert out["draft"]["time"] == "09:30"
+    assert out["draft"]["date"] == "2025-05-17"
+
+
+def test_blank_page_extract_skips_title_hallucination():
+    user = "test-img-blank-may"
+    clear_draft(user)
+    ai = _FakeVisionAI(
+        {
+            "has_handwritten_entry": False,
+            "has_time_highlight": True,
+            "highlighted_time_row": "9:30",
+            "entry_text": None,
+            "title": None,
+            "header_month": "May",
+            "header_day": 17,
+            "calendar_year": 2025,
+            "confidence": 0.7,
+        },
+        title_payload={
+            "has_handwritten_entry": False,
+            "entry_text": "meeting with boss",
+            "title": "meeting with boss",
+            "confidence": 0.9,
+        },
+        time_payload={
+            "has_time_highlight": True,
+            "highlighted_time_row": "9:30",
+            "time": "9:30",
+            "confidence": 0.9,
+        },
+    )
+    result = extract_reminder_from_image(
+        b"fake-image-bytes",
+        user_id=user,
+        ai=ai,  # type: ignore[arg-type]
+    )
+    assert result.ok
+    assert result.title is None
+    assert result.time == "09:30"
+    assert result.date == "2025-05-17"
+    assert "highlighted time" in (result.message or "").lower()
+    clear_draft(user)
 
 
 def test_prompt_leak_title_scrubbed_without_handwriting_flag():
@@ -196,40 +255,6 @@ def test_title_retry_fills_handwritten_note():
     assert result.date == "2025-06-22"
     assert result.time == "11:00"
     assert result.category == "Important"
-    clear_draft(user)
-
-
-def test_blank_page_extract_skips_title_hallucination():
-    user = "test-img-blank-may"
-    clear_draft(user)
-    ai = _FakeVisionAI(
-        {
-            "has_handwritten_entry": False,
-            "entry_text": None,
-            "title": None,
-            "header_month": "May",
-            "header_day": 17,
-            "calendar_year": 2025,
-            "confidence": 0.7,
-        },
-        title_payload={
-            "has_handwritten_entry": False,
-            "entry_text": "meeting with boss",
-            "title": "meeting with boss",
-            "confidence": 0.9,
-        },
-        time_payload={"time_row": "11:00", "time": "11:00", "confidence": 0.9},
-    )
-    result = extract_reminder_from_image(
-        b"fake-image-bytes",
-        user_id=user,
-        ai=ai,  # type: ignore[arg-type]
-    )
-    assert result.ok
-    assert result.title is None
-    assert result.time is None
-    assert result.date == "2025-05-17"
-    assert "no handwritten" in (result.message or "").lower()
     clear_draft(user)
 
 

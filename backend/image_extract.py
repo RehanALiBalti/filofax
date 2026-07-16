@@ -98,9 +98,8 @@ _PROMPT_LEAK_TITLES = {
 }
 
 
-def _truthy_handwriting(payload: dict[str, Any]) -> bool | None:
-    """True/False if model set the flag; None if absent."""
-    val = payload.get("has_handwritten_entry")
+def _truthy_flag(payload: dict[str, Any], key: str) -> bool | None:
+    val = payload.get(key)
     if val is None:
         return None
     if isinstance(val, str):
@@ -112,11 +111,23 @@ def _truthy_handwriting(payload: dict[str, Any]) -> bool | None:
     return bool(val)
 
 
+def _truthy_handwriting(payload: dict[str, Any]) -> bool | None:
+    return _truthy_flag(payload, "has_handwritten_entry")
+
+
+def _truthy_highlight(payload: dict[str, Any]) -> bool | None:
+    if _truthy_flag(payload, "has_time_highlight") is True:
+        return True
+    if payload.get("highlighted_time_row") not in (None, "", "null"):
+        return True
+    return _truthy_flag(payload, "has_time_highlight")
+
+
 def _scrub_empty_or_leaked(
     draft: dict[str, Any],
     payload: dict[str, Any],
 ) -> dict[str, Any]:
-    """Blank pages must not keep invented title/time/category."""
+    """Blank pages must not keep invented title/category; highlighted time may stay."""
     out = dict(draft)
     hand = _truthy_handwriting(payload)
     title = (out.get("label") or "").strip().lower()
@@ -125,20 +136,34 @@ def _scrub_empty_or_leaked(
         _clean_title(payload.get("entry_text"))
         or _clean_title(payload.get("handwritten_text"))
     )
+    highlight_time = _coerce_vision_time(
+        payload.get("highlighted_time_row")
+    ) or (
+        _coerce_vision_time(payload.get("time_row") or payload.get("time"))
+        if _truthy_highlight(payload)
+        else None
+    )
 
     if hand is False:
         out["label"] = None
-        out["time"] = None
         out["category"] = None
         out["notes"] = None
+        # Keep highlighter time when present; otherwise clear invented times
+        if highlight_time:
+            out["time"] = highlight_time.strftime("%H:%M")
+        else:
+            out["time"] = None
         return out
 
     # Title-only prompt leak (no entry_text) when handwriting flag missing
     if leaked and hand is None and not has_entry_text:
         out["label"] = None
-        out["time"] = None
         out["category"] = None
         out["notes"] = None
+        if not highlight_time:
+            out["time"] = None
+        else:
+            out["time"] = highlight_time.strftime("%H:%M")
     return out
 
 
@@ -193,19 +218,29 @@ def _compose_date(
     day = _as_int(payload.get("header_day"))
     year = _as_int(payload.get("calendar_year"))
 
+    raw = payload.get("date")
+    parsed = _parse_date(None if raw is None else str(raw))
+
     if month and day:
         if year is None or year < 2000 or year > 2100:
-            # Prefer year embedded in model date if present
-            raw = payload.get("date")
-            parsed = _parse_date(None if raw is None else str(raw))
             year = parsed.year if parsed else today.year
+        # Mini-calendar year wins over a wrong year inside date=
+        cal = _as_int(payload.get("calendar_year"))
+        if cal:
+            year = cal
         try:
             return date(year, month, day)
         except ValueError:
             pass
 
-    raw = payload.get("date")
-    return _parse_date(None if raw is None else str(raw))
+    if parsed and month and day and parsed.month == month and parsed.day == day:
+        cal = _as_int(payload.get("calendar_year"))
+        if cal and parsed.year != cal:
+            try:
+                return date(cal, month, day)
+            except ValueError:
+                pass
+    return parsed
 
 
 def _coerce_vision_time(value: Any) -> time | None:
@@ -244,15 +279,29 @@ def _coerce_vision_time(value: Any) -> time | None:
 
 
 def _pick_time_from_payload(payload: dict[str, Any]) -> time | None:
-    # Prefer explicit planner row
-    for key in ("time_row", "time", "time_slot", "start_time", "hour", "schedule_time"):
-        if key in payload and payload.get(key) not in (None, "", "null"):
+    """Prefer highlighted row; then handwriting row; ignore bare times on blank pages."""
+    hand = _truthy_handwriting(payload)
+    highlighted = _truthy_highlight(payload)
+
+    if highlighted:
+        for key in ("highlighted_time_row", "time_row", "time"):
             got = _coerce_vision_time(payload.get(key))
             if got:
-                # Apply PM flag for morning-looking hours when model says afternoon half
                 if payload.get("time_is_pm") is True and got.hour < 12:
                     got = time(hour=got.hour + 12, minute=got.minute)
                 return got
+
+    if hand is False:
+        return None
+
+    for key in ("time_row", "time", "time_slot", "start_time", "hour", "schedule_time"):
+        if payload.get(key) in (None, "", "null"):
+            continue
+        got = _coerce_vision_time(payload.get(key))
+        if got:
+            if payload.get("time_is_pm") is True and got.hour < 12:
+                got = time(hour=got.hour + 12, minute=got.minute)
+            return got
     return None
 
 
@@ -334,26 +383,31 @@ def normalize_vision_payload(
     draft["time"] = parsed_time.strftime("%H:%M") if parsed_time else None
     draft = _scrub_empty_or_leaked(draft, payload)
 
-    # If handwriting absent but model still invented old sample date/time, drop time
-    # (header date from month/day is kept when composed from header_* fields)
+    # No handwriting: drop invented title/category; keep highlight time + header date
     if _truthy_handwriting(payload) is False:
-        draft["time"] = None
         draft["category"] = None
         draft["label"] = None
         draft["notes"] = None
+        highlight_time = None
+        if _truthy_highlight(payload):
+            highlight_time = _coerce_vision_time(
+                payload.get("highlighted_time_row")
+            ) or _coerce_vision_time(payload.get("time_row") or payload.get("time"))
+        if highlight_time:
+            draft["time"] = highlight_time.strftime("%H:%M")
+        elif not _truthy_highlight(payload):
+            draft["time"] = None
         if not (payload.get("header_month") and payload.get("header_day")):
-            # Untrusted date string alone on a blank page
             if draft.get("date") in {"2025-06-22", "2026-06-22"}:
                 draft["date"] = None
 
     has_any = any(draft.get(k) for k in ("date", "time", "category", "label"))
     conf = _confidence(payload.get("confidence"), has_any=has_any)
     if _truthy_handwriting(payload) is False and not draft.get("label"):
-        conf = min(conf, 0.5)
-    # Boost when composed from structured planner facts
+        conf = min(conf, 0.55)
     if payload.get("header_month") and payload.get("header_day") and draft.get("date"):
         conf = max(conf, 0.85)
-    if payload.get("time_row") and draft.get("time") and draft.get("label"):
+    if draft.get("time") and (_truthy_highlight(payload) or draft.get("label")):
         conf = max(conf, 0.85)
     return {"draft": draft, "confidence": conf}
 
@@ -376,7 +430,13 @@ def build_extract_message(draft: dict[str, Any], miss: list[str]) -> str:
             "I couldn't read a clear reminder from this photo. "
             "Try a clearer shot, or tell me the date and time."
         )
-    # Date-only blank planner (header readable, no handwriting)
+    # Date + highlighted time, no title yet
+    if draft.get("date") and draft.get("time") and not draft.get("label"):
+        return (
+            f"Got the page date ({draft['date']}) and highlighted time ({draft['time']}). "
+            "Add a title, or upload a page with writing on it."
+        )
+    # Date-only blank planner (header readable, no handwriting / highlight)
     if draft.get("date") and not draft.get("label") and not draft.get("time"):
         return (
             f"I see the page date ({draft['date']}) but no handwritten note. "
@@ -422,8 +482,23 @@ def _merge_focus_retries(
     merged = dict(payload)
     hand = _truthy_handwriting(payload)
 
-    # Blank page: never run title/time retries (they hallucinate old samples)
+    # Blank handwriting: still look for a highlighted time row; refresh date header
     if hand is False:
+        time_payload = _safe_focus_extract(
+            service, image_bytes, timezone=timezone, focus="time"
+        )
+        if time_payload:
+            for key in (
+                "has_time_highlight",
+                "highlighted_time_row",
+                "time_row",
+                "time",
+                "time_is_pm",
+                "confidence",
+            ):
+                if time_payload.get(key) not in (None, "", "null"):
+                    merged[key] = time_payload.get(key)
+            merged["_time_retry"] = time_payload
         date_payload = _safe_focus_extract(
             service, image_bytes, timezone=timezone, focus="date"
         )
@@ -592,10 +667,15 @@ def extract_reminder_from_image(
     if save_pending and has_entry:
         save_draft(user_id, draft)
         pending = draft
-    elif save_pending and draft.get("date") and not has_entry:
-        # Blank schedule: keep page date only, clear stale prior draft
+    elif save_pending and (draft.get("date") or draft.get("time")) and not draft.get("label"):
         clear_draft(user_id)
-        pending = {"date": draft["date"], "time": None, "category": None, "label": None, "notes": None}
+        pending = {
+            "date": draft.get("date"),
+            "time": draft.get("time"),
+            "category": None,
+            "label": None,
+            "notes": None,
+        }
         save_draft(user_id, pending)
     else:
         if save_pending and not has_entry:
