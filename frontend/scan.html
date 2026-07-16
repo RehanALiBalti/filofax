@@ -1,0 +1,714 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+  <title>Filofax Scan</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --ink: #1a2420;
+      --muted: #5c6d66;
+      --wash: #dfe8e3;
+      --sheet: #f4f7f5;
+      --line: rgba(26, 36, 32, 0.12);
+      --teal: #1f7a62;
+      --teal-deep: #155a48;
+      --teal-glow: rgba(31, 122, 98, 0.18);
+      --warn: #9a5b12;
+      --danger: #a33a3a;
+      --good: #1f7a62;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      min-height: 100dvh;
+      font-family: "DM Sans", system-ui, sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(ellipse 90% 60% at 50% -10%, rgba(31, 122, 98, 0.16), transparent 55%),
+        radial-gradient(ellipse 50% 40% at 100% 80%, rgba(90, 120, 110, 0.12), transparent 50%),
+        linear-gradient(180deg, #e8efeb 0%, var(--wash) 48%, #d5e0da 100%);
+      -webkit-tap-highlight-color: transparent;
+    }
+    .page {
+      min-height: 100dvh;
+      max-width: 480px;
+      margin: 0 auto;
+      padding:
+        max(1rem, env(safe-area-inset-top))
+        max(1.1rem, env(safe-area-inset-right))
+        max(1.1rem, env(safe-area-inset-bottom))
+        max(1.1rem, env(safe-area-inset-left));
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+    .top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+    }
+    .brand {
+      font-family: "Syne", sans-serif;
+      font-weight: 800;
+      font-size: clamp(1.55rem, 6vw, 1.9rem);
+      letter-spacing: -0.03em;
+      line-height: 1;
+      color: var(--ink);
+    }
+    .top a {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--teal);
+      text-decoration: none;
+    }
+    .hero-copy {
+      text-align: center;
+      animation: riseIn 0.7s ease both;
+    }
+    .hero-copy h1 {
+      margin: 0 0 0.45rem;
+      font-family: "Syne", sans-serif;
+      font-weight: 700;
+      font-size: clamp(1.15rem, 4.2vw, 1.35rem);
+      letter-spacing: -0.02em;
+      line-height: 1.25;
+    }
+    .hero-copy p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.95rem;
+      line-height: 1.45;
+      max-width: 22rem;
+      margin-inline: auto;
+    }
+    .stage {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      min-height: 0;
+    }
+    .drop {
+      position: relative;
+      flex: 1;
+      min-height: min(52dvh, 420px);
+      border: 1.5px dashed rgba(31, 122, 98, 0.45);
+      border-radius: 1.35rem;
+      background:
+        linear-gradient(160deg, rgba(255,255,255,0.72), rgba(244,247,245,0.55)),
+        repeating-linear-gradient(
+          -12deg,
+          transparent,
+          transparent 11px,
+          rgba(31, 122, 98, 0.035) 11px,
+          rgba(31, 122, 98, 0.035) 12px
+        );
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      cursor: pointer;
+      transition: border-color 0.25s ease, transform 0.35s ease, box-shadow 0.35s ease;
+      animation: riseIn 0.85s ease 0.08s both;
+      box-shadow: 0 18px 40px rgba(26, 36, 32, 0.08);
+    }
+    .drop:hover, .drop:focus-visible {
+      border-color: var(--teal);
+      transform: translateY(-2px);
+      box-shadow: 0 22px 48px rgba(31, 122, 98, 0.16);
+      outline: none;
+    }
+    .drop.drag {
+      border-color: var(--teal);
+      background: rgba(31, 122, 98, 0.08);
+    }
+    .drop.has-preview {
+      border-style: solid;
+      cursor: default;
+    }
+    .drop-inner {
+      text-align: center;
+      padding: 1.5rem;
+      pointer-events: none;
+      z-index: 1;
+    }
+    .drop-glyph {
+      width: 4.5rem;
+      height: 4.5rem;
+      margin: 0 auto 1rem;
+      border-radius: 1.1rem;
+      background: linear-gradient(145deg, #2a9a7a, var(--teal-deep));
+      box-shadow: 0 12px 28px var(--teal-glow);
+      position: relative;
+      animation: floatSoft 3.6s ease-in-out infinite;
+    }
+    .drop-glyph::before,
+    .drop-glyph::after {
+      content: "";
+      position: absolute;
+      background: rgba(255,255,255,0.92);
+      border-radius: 2px;
+    }
+    .drop-glyph::before {
+      width: 1.55rem;
+      height: 0.22rem;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+    }
+    .drop-glyph::after {
+      width: 0.22rem;
+      height: 1.55rem;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+    }
+    .drop-title {
+      font-family: "Syne", sans-serif;
+      font-weight: 700;
+      font-size: 1.05rem;
+      margin: 0 0 0.35rem;
+    }
+    .drop-sub {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.88rem;
+    }
+    .preview {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: none;
+    }
+    .drop.has-preview .preview { display: block; }
+    .drop.has-preview .drop-inner { display: none; }
+    .veil {
+      display: none;
+      position: absolute;
+      inset: 0;
+      background: rgba(26, 36, 32, 0.45);
+      backdrop-filter: blur(3px);
+      place-items: center;
+      color: #fff;
+      font-weight: 600;
+      z-index: 2;
+      animation: fadeIn 0.3s ease;
+    }
+    .drop.busy .veil {
+      display: grid;
+    }
+    .veil span {
+      padding: 0.7rem 1.1rem;
+      border-radius: 999px;
+      background: rgba(0,0,0,0.35);
+      animation: pulseSoft 1.2s ease-in-out infinite;
+    }
+    .cta-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.65rem;
+      animation: riseIn 0.9s ease 0.14s both;
+    }
+    .btn {
+      border: 0;
+      font: inherit;
+      font-weight: 700;
+      border-radius: 999px;
+      padding: 0.85rem 1rem;
+      cursor: pointer;
+      transition: transform 0.2s ease, opacity 0.2s ease, background 0.2s ease;
+    }
+    .btn:active { transform: scale(0.98); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-primary {
+      background: linear-gradient(145deg, #2a9a7a, var(--teal-deep));
+      color: #f4fffa;
+      box-shadow: 0 10px 24px var(--teal-glow);
+    }
+    .btn-ghost {
+      background: rgba(255,255,255,0.55);
+      color: var(--ink);
+      border: 1px solid var(--line);
+    }
+    .status {
+      min-height: 1.25rem;
+      text-align: center;
+      font-size: 0.9rem;
+      color: var(--muted);
+    }
+    .status.err { color: var(--danger); }
+    .status.ok { color: var(--good); }
+    .status.warn { color: var(--warn); }
+
+    .results {
+      display: none;
+      flex-direction: column;
+      gap: 0.85rem;
+      animation: riseIn 0.45s ease both;
+    }
+    .results.show { display: flex; }
+    .page.mode-results .hero-copy,
+    .page.mode-results .drop,
+    .page.mode-results .cta-row { display: none; }
+    .results-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 0.75rem;
+    }
+    .results-head h2 {
+      margin: 0;
+      font-family: "Syne", sans-serif;
+      font-size: 1.2rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+    .confidence {
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--muted);
+    }
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+    .field label {
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .field input,
+    .field select,
+    .field textarea {
+      font: inherit;
+      border: 1px solid var(--line);
+      border-radius: 0.85rem;
+      padding: 0.75rem 0.9rem;
+      background: rgba(255,255,255,0.78);
+      color: var(--ink);
+      outline: none;
+    }
+    .field input:focus,
+    .field select:focus,
+    .field textarea:focus {
+      border-color: rgba(31, 122, 98, 0.55);
+      box-shadow: 0 0 0 3px var(--teal-glow);
+    }
+    .field textarea { min-height: 4.5rem; resize: vertical; }
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.65rem;
+    }
+    .thumb-strip {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    .thumb-strip img {
+      width: 4.25rem;
+      height: 4.25rem;
+      object-fit: cover;
+      border-radius: 0.85rem;
+      border: 1px solid var(--line);
+    }
+    .thumb-strip p {
+      margin: 0;
+      font-size: 0.88rem;
+      color: var(--muted);
+      line-height: 1.35;
+    }
+    .actions {
+      display: grid;
+      grid-template-columns: 1fr 1.2fr;
+      gap: 0.65rem;
+      margin-top: 0.35rem;
+    }
+    .foot {
+      text-align: center;
+      font-size: 0.75rem;
+      color: rgba(92, 109, 102, 0.85);
+    }
+    .foot a { color: var(--teal); text-decoration: none; font-weight: 600; }
+    #fileInput { display: none; }
+    @keyframes riseIn {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    @keyframes floatSoft {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-6px); }
+    }
+    @keyframes pulseSoft {
+      0%, 100% { opacity: 0.85; }
+      50% { opacity: 1; }
+    }
+    @media (max-width: 420px) {
+      .grid-2 { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page" id="page">
+    <div class="top">
+      <div class="brand">Filofax Scan</div>
+      <a id="chatLink" href="/">Text chat</a>
+    </div>
+
+    <div class="hero-copy">
+      <h1>Snap a diary page</h1>
+      <p>We'll read the title, date, time, and category from your photo.</p>
+    </div>
+
+    <div class="stage">
+      <div class="drop" id="drop" role="button" tabindex="0" aria-label="Choose or take a diary photo">
+        <img class="preview" id="preview" alt="Selected diary photo" />
+        <div class="veil"><span id="veilText">Reading page…</span></div>
+        <div class="drop-inner">
+          <div class="drop-glyph" aria-hidden="true"></div>
+          <p class="drop-title">Drop photo here</p>
+          <p class="drop-sub">or tap to open camera / gallery</p>
+        </div>
+      </div>
+
+      <div class="cta-row">
+        <button type="button" class="btn btn-ghost" id="galleryBtn">Gallery</button>
+        <button type="button" class="btn btn-primary" id="cameraBtn">Take photo</button>
+      </div>
+
+      <div class="status" id="status"></div>
+
+      <section class="results" id="results" aria-live="polite">
+        <div class="results-head">
+          <h2>From your photo</h2>
+          <div class="confidence" id="confidence"></div>
+        </div>
+        <div class="thumb-strip">
+          <img id="resultThumb" alt="" />
+          <p id="resultHint">Edit anything that looks off, then save.</p>
+        </div>
+        <div class="field">
+          <label for="title">Title</label>
+          <input id="title" type="text" autocomplete="off" />
+        </div>
+        <div class="grid-2">
+          <div class="field">
+            <label for="date">Date</label>
+            <input id="date" type="date" />
+          </div>
+          <div class="field">
+            <label for="time">Time</label>
+            <input id="time" type="time" />
+          </div>
+        </div>
+        <div class="field">
+          <label for="category">Category</label>
+          <select id="category">
+            <option value="">— choose —</option>
+            <option value="To Do">To Do</option>
+            <option value="Appointment">Appointment</option>
+            <option value="Important">Important</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="notes">Notes</label>
+          <textarea id="notes" placeholder="Optional"></textarea>
+        </div>
+        <div class="actions">
+          <button type="button" class="btn btn-ghost" id="retakeBtn">New photo</button>
+          <button type="button" class="btn btn-primary" id="saveBtn">Save reminder</button>
+        </div>
+      </section>
+    </div>
+
+    <div class="foot">
+      Separate from chat ·
+      <a id="talkLink" href="/talk">Talk</a>
+    </div>
+  </div>
+
+  <input id="fileInput" type="file" accept="image/*" />
+  <input id="cameraInput" type="file" accept="image/*" capture="environment" style="display:none" />
+
+  <script>
+    const API = (() => {
+      const path = window.location.pathname || "";
+      if (path === "/filofax" || path.startsWith("/filofax/")) return "/filofax";
+      return "";
+    })();
+
+    function q(name) {
+      return new URLSearchParams(window.location.search || "").get(name) || "";
+    }
+
+    function resolveUserId() {
+      const fromUrl = (q("userid") || q("user_id") || q("userId")).trim();
+      if (fromUrl) {
+        try { sessionStorage.setItem("filofax_user_id", fromUrl); } catch (_) {}
+        return fromUrl;
+      }
+      try {
+        const saved = sessionStorage.getItem("filofax_user_id");
+        if (saved && saved.trim()) return saved.trim();
+      } catch (_) {}
+      return "default";
+    }
+
+    function resolveTimezone() {
+      const fromUrl = (q("timezone") || q("timeZone") || q("tz")).trim();
+      if (fromUrl) {
+        try { sessionStorage.setItem("filofax_timezone", fromUrl); } catch (_) {}
+        return fromUrl;
+      }
+      try {
+        const saved = sessionStorage.getItem("filofax_timezone");
+        if (saved && saved.trim()) return saved.trim();
+      } catch (_) {}
+      try {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone || "Europe/Vienna";
+      } catch (_) {
+        return "Europe/Vienna";
+      }
+    }
+
+    const userId = resolveUserId();
+    const timezone = resolveTimezone();
+    const qs = window.location.search || "";
+
+    const page = document.getElementById("page");
+    const drop = document.getElementById("drop");
+    const preview = document.getElementById("preview");
+    const statusEl = document.getElementById("status");
+    const results = document.getElementById("results");
+    const fileInput = document.getElementById("fileInput");
+    const cameraInput = document.getElementById("cameraInput");
+    const veilText = document.getElementById("veilText");
+
+    document.getElementById("chatLink").href = `${API || ""}/${qs}`;
+    document.getElementById("talkLink").href = `${API || ""}/talk${qs}`;
+
+    let busy = false;
+    let objectUrl = null;
+    let pendingEvent = null;
+    let lastFile = null;
+
+    function setStatus(text, mode = "") {
+      statusEl.textContent = text || "";
+      statusEl.className = "status" + (mode ? " " + mode : "");
+    }
+
+    function revokePreview() {
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+        objectUrl = null;
+      }
+    }
+
+    function showCapture() {
+      page.classList.remove("mode-results");
+      results.classList.remove("show");
+      drop.classList.remove("has-preview", "busy");
+      revokePreview();
+      preview.removeAttribute("src");
+      pendingEvent = null;
+      lastFile = null;
+      setStatus("");
+    }
+
+    function showPreview(file) {
+      revokePreview();
+      objectUrl = URL.createObjectURL(file);
+      preview.src = objectUrl;
+      document.getElementById("resultThumb").src = objectUrl;
+      drop.classList.add("has-preview");
+    }
+
+    function fillForm(data) {
+      document.getElementById("title").value = data.title || "";
+      document.getElementById("date").value = data.date || "";
+      document.getElementById("time").value = (data.time || "").slice(0, 5);
+      document.getElementById("category").value = data.category || "";
+      document.getElementById("notes").value = data.notes || "";
+      const conf = typeof data.confidence === "number"
+        ? Math.round(data.confidence * 100) + "% sure"
+        : "";
+      document.getElementById("confidence").textContent = conf;
+      document.getElementById("resultHint").textContent = data.message
+        || "Edit anything that looks off, then save.";
+    }
+
+    function showResults(data) {
+      page.classList.add("mode-results");
+      results.classList.add("show");
+      drop.classList.remove("busy");
+      fillForm(data);
+      pendingEvent = data.pending_event || null;
+      if (data.missing_fields && data.missing_fields.length) {
+        setStatus("Fill missing fields, then save.", "warn");
+      } else {
+        setStatus("Looks good — save when ready.", "ok");
+      }
+    }
+
+    async function extract(file) {
+      if (!file || busy) return;
+      busy = true;
+      lastFile = file;
+      showPreview(file);
+      drop.classList.add("busy");
+      veilText.textContent = "Reading page…";
+      setStatus("Processing with vision model…");
+
+      const body = new FormData();
+      body.append("image", file, file.name || "diary.jpg");
+      body.append("user_id", userId);
+      body.append("timezone", timezone);
+
+      try {
+        const res = await fetch(`${API}/api/assistant/extract-from-image`, {
+          method: "POST",
+          body,
+        });
+        const raw = await res.text();
+        let data = {};
+        try { data = raw ? JSON.parse(raw) : {}; } catch (_) {
+          throw new Error(raw.slice(0, 160) || ("HTTP " + res.status));
+        }
+        if (!res.ok) {
+          throw new Error(
+            (data.error && data.error.message) ||
+            data.detail ||
+            data.message ||
+            ("HTTP " + res.status)
+          );
+        }
+        if (!data.ok && data.message) {
+          setStatus(data.message, "err");
+        }
+        showResults(data);
+      } catch (err) {
+        console.error(err);
+        drop.classList.remove("busy");
+        setStatus(String(err.message || err), "err");
+      } finally {
+        busy = false;
+      }
+    }
+
+    function onFile(file) {
+      if (!file) return;
+      if (!String(file.type || "").startsWith("image/") && file.type) {
+        setStatus("Please choose an image file.", "err");
+        return;
+      }
+      extract(file);
+    }
+
+    drop.addEventListener("click", () => {
+      if (busy || page.classList.contains("mode-results")) return;
+      fileInput.click();
+    });
+    drop.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        if (!busy) fileInput.click();
+      }
+    });
+    ["dragenter", "dragover"].forEach((ev) => {
+      drop.addEventListener(ev, (e) => {
+        e.preventDefault();
+        drop.classList.add("drag");
+      });
+    });
+    ["dragleave", "drop"].forEach((ev) => {
+      drop.addEventListener(ev, (e) => {
+        e.preventDefault();
+        drop.classList.remove("drag");
+      });
+    });
+    drop.addEventListener("drop", (e) => {
+      const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      onFile(file);
+    });
+
+    fileInput.addEventListener("change", () => {
+      onFile(fileInput.files && fileInput.files[0]);
+      fileInput.value = "";
+    });
+    cameraInput.addEventListener("change", () => {
+      onFile(cameraInput.files && cameraInput.files[0]);
+      cameraInput.value = "";
+    });
+
+    document.getElementById("galleryBtn").addEventListener("click", () => fileInput.click());
+    document.getElementById("cameraBtn").addEventListener("click", () => cameraInput.click());
+    document.getElementById("retakeBtn").addEventListener("click", showCapture);
+
+    document.getElementById("saveBtn").addEventListener("click", async () => {
+      if (busy) return;
+      const title = document.getElementById("title").value.trim();
+      const date = document.getElementById("date").value.trim();
+      const time = document.getElementById("time").value.trim();
+      const category = document.getElementById("category").value.trim();
+      const notes = document.getElementById("notes").value.trim();
+
+      if (!title || !date || !time || !category) {
+        setStatus("Title, date, time, and category are required.", "warn");
+        return;
+      }
+
+      busy = true;
+      setStatus("Saving…");
+      try {
+        const res = await fetch(`${API}/api/events`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            user_id: userId,
+            timezone,
+            event_date: date,
+            event_time: time.length === 5 ? time + ":00" : time,
+            label: title,
+            category,
+            notes: notes || null,
+          }),
+        });
+        const raw = await res.text();
+        let data = {};
+        try { data = raw ? JSON.parse(raw) : {}; } catch (_) {
+          throw new Error(raw.slice(0, 160) || ("HTTP " + res.status));
+        }
+        if (!res.ok) {
+          throw new Error(
+            (data.error && data.error.message) ||
+            data.detail ||
+            data.message ||
+            ("HTTP " + res.status)
+          );
+        }
+        setStatus("Saved — reminder is on your list.", "ok");
+        pendingEvent = null;
+        setTimeout(showCapture, 1400);
+      } catch (err) {
+        console.error(err);
+        setStatus(String(err.message || err), "err");
+      } finally {
+        busy = false;
+      }
+    });
+  </script>
+</body>
+</html>

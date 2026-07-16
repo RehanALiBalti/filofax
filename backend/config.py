@@ -47,6 +47,15 @@ WHISPER_LANGUAGE = os.getenv("WHISPER_LANGUAGE", "").strip() or None
 VOICE_MAX_BYTES = int(os.getenv("VOICE_MAX_BYTES", str(15 * 1024 * 1024)))
 VOICE_ENABLED = os.getenv("VOICE_ENABLED", "true").lower() in ("1", "true", "yes")
 
+# Diary / planner photo → structured reminder fields (Ollama vision)
+VISION_ENABLED = os.getenv("VISION_ENABLED", "true").lower() in ("1", "true", "yes")
+VISION_MODEL = os.getenv(
+    "VISION_MODEL",
+    os.getenv("OLLAMA_VISION_MODEL", "llava"),
+).strip()
+IMAGE_MAX_BYTES = int(os.getenv("IMAGE_MAX_BYTES", str(8 * 1024 * 1024)))
+VISION_TIMEOUT_SECONDS = float(os.getenv("VISION_TIMEOUT_SECONDS", "180"))
+
 
 def ai_base_url() -> str:
     """Resolve the AI runtime base URL (provider-agnostic)."""

@@ -22,17 +22,22 @@ from backend.config import (
     APP_ROOT,
     CORS_ORIGINS,
     DEFAULT_USER_ID,
+    IMAGE_MAX_BYTES,
+    VISION_ENABLED,
+    VISION_MODEL,
     VOICE_ENABLED,
     VOICE_MAX_BYTES,
 )
 from backend.database import get_db, init_db
 from backend import event_service
+from backend.image_extract import extract_reminder_from_image
 from backend.models import (
     AssistantResponse,
     ChatRequest,
     EventCreate,
     EventOut,
     EventUpdate,
+    ImageExtractResponse,
 )
 from backend.voice import VoiceTranscriptionError, transcribe_audio_bytes, whisper_status
 from backend.firebase_app import check_firebase
@@ -48,6 +53,11 @@ JSON REST API for Android / iOS / web clients.
 2. Show `message` and chips from `suggested_replies`
 3. Echo `pending_event` on every follow-up until saved or cleared
 4. When `needs_confirmation` is true, send `{ confirm: true, message: "yes", pending_event }`
+
+**Diary photo**
+1. UI: `/scan?userid=…&timezone=…` (standalone — not merged into chat/talk)
+2. API: `POST /api/assistant/extract-from-image` (multipart: `image`, `user_id`, `timezone`)
+3. Review `title` / `date` / `time` / `category`, then save via `POST /api/events`
 
 **Events CRUD** also available under `/api/events`.
 """
@@ -127,6 +137,15 @@ def talk_mode() -> FileResponse:
     return FileResponse(talk)
 
 
+@app.get("/scan")
+def scan_mode() -> FileResponse:
+    """Standalone diary-photo extract UI — not merged into chat/talk."""
+    scan = FRONTEND_DIR / "scan.html"
+    if not scan.exists():
+        raise HTTPException(status_code=404, detail="Scan UI not found")
+    return FileResponse(scan)
+
+
 if FRONTEND_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
 
@@ -158,6 +177,13 @@ def api_index() -> dict:
                 "path": "/api/assistant/voice",
                 "content_type": "multipart/form-data",
                 "fields": ["audio", "user_id", "confirm", "pending_event"],
+            },
+            "extract_from_image": {
+                "method": "POST",
+                "path": "/api/assistant/extract-from-image",
+                "content_type": "multipart/form-data",
+                "fields": ["image", "user_id", "timezone"],
+                "returns": ["title", "date", "time", "category", "notes", "pending_event"],
             },
             "list_events": {"method": "GET", "path": "/api/events?user_id="},
             "list_reminders_by_user": {
@@ -205,6 +231,11 @@ def health() -> dict:
         "categories": list(ALLOWED_CATEGORIES),
         "languages": "open — any language/script the configured model understands",
         "voice": whisper_status(),
+        "vision": {
+            "enabled": VISION_ENABLED,
+            "model": VISION_MODEL,
+            "max_bytes": IMAGE_MAX_BYTES,
+        },
         "ollama": runtime,
         "ai": runtime,
         "firebase": check_firebase(),
@@ -272,6 +303,52 @@ async def assistant_voice(
         timezone=timezone,
     )
     return result.model_copy(update={"transcript": transcript, "input_mode": "voice"})
+
+
+@app.post(
+    "/api/assistant/extract-from-image",
+    response_model=ImageExtractResponse,
+    tags=["Assistant"],
+)
+async def assistant_extract_from_image(
+    image: UploadFile = File(...),
+    user_id: str = Form(DEFAULT_USER_ID),
+    timezone: Optional[str] = Form(None),
+) -> ImageExtractResponse:
+    """Diary/planner photo → title, date, time, category (vision model)."""
+    if not VISION_ENABLED:
+        raise HTTPException(status_code=503, detail="Image extract is disabled on this server.")
+
+    data = await image.read()
+    if not data:
+        raise HTTPException(status_code=422, detail="Empty image file.")
+    if len(data) > IMAGE_MAX_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Image too large (max {IMAGE_MAX_BYTES} bytes).",
+        )
+
+    content_type = (image.content_type or "").lower()
+    name = (image.filename or "").lower()
+    allowed_types = ("image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif", "image/heic")
+    looks_image = (
+        content_type.startswith("image/")
+        or content_type in allowed_types
+        or name.endswith((".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic", ".heif"))
+        or not content_type  # some clients omit type
+    )
+    if content_type and not looks_image and not content_type.startswith("application/octet-stream"):
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unsupported content type: {content_type}. Use JPEG/PNG/WebP.",
+        )
+
+    return extract_reminder_from_image(
+        data,
+        user_id=user_id or DEFAULT_USER_ID,
+        timezone=timezone,
+        save_pending=True,
+    )
 
 
 @app.get("/api/reminders/{user_id}", response_model=list[EventOut], tags=["Reminders"])

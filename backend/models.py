@@ -161,7 +161,29 @@ class AssistantResponse(BaseModel):
     suggested_replies: list[str] = Field(default_factory=list)
     ai: Optional[AIResponse] = None
     transcript: Optional[str] = None
-    input_mode: Optional[str] = None  # "text" | "voice"
+    input_mode: Optional[str] = None  # "text" | "voice" | "image"
+
+
+class ImageExtractResponse(BaseModel):
+    """Diary photo → structured reminder fields."""
+
+    ok: bool
+    intent: Intent = "create_event"
+    language: LanguageInfo
+    confidence: float = 0.0
+    message: str
+    title: Optional[str] = None
+    date: Optional[str] = None
+    time: Optional[str] = None
+    category: Optional[str] = None
+    notes: Optional[str] = None
+    missing_fields: list[str] = Field(default_factory=list)
+    needs_confirmation: bool = False
+    requires_clarification: bool = False
+    pending_event: Optional[dict[str, Any]] = None
+    suggested_replies: list[str] = Field(default_factory=list)
+    input_mode: Optional[str] = "image"
+    raw: Optional[dict[str, Any]] = None
 
 
 def is_allowed_category(value: str | None) -> bool:

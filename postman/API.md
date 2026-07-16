@@ -15,6 +15,7 @@ All app traffic is **JSON** (`Content-Type: application/json`), except voice (`m
 |----|-----|
 | Text chat | `/` or `/?userid=…&timezone=…` |
 | Talk (voice orb) | `/talk?userid=…&timezone=…` |
+| Scan (diary photo) | `/scan?userid=…&timezone=…` |
 
 ## Chat (main mobile path)
 
@@ -117,6 +118,65 @@ Timezone default: `Europe/Vienna` (`FIRESTORE_REMINDER_TIMEZONE`).
 Categories: `To Do` · `Appointment` · `Important`
 
 Without Firebase credentials, the API falls back to local SQLite (dev only).
+
+## Diary photo → fields
+
+```http
+POST /api/assistant/extract-from-image
+Content-Type: multipart/form-data
+```
+
+| Field | Type | Notes |
+|-------|------|--------|
+| `image` | file | JPEG / PNG / WebP (max ~8 MB) |
+| `user_id` | text | App user id |
+| `timezone` | text | e.g. `Europe/Vienna` |
+
+**Response**
+
+```json
+{
+  "ok": true,
+  "title": "Doctor appointment",
+  "date": "2026-07-20",
+  "time": "15:30",
+  "category": "Appointment",
+  "notes": "Bring reports",
+  "confidence": 0.86,
+  "missing_fields": [],
+  "needs_confirmation": true,
+  "pending_event": {
+    "label": "Doctor appointment",
+    "date": "2026-07-20",
+    "time": "15:30",
+    "category": "Appointment",
+    "notes": "Bring reports",
+    "_awaiting_confirm": true
+  },
+  "message": "Got it from the photo: …",
+  "suggested_replies": ["Yes, save", "Change time", "Change date", "No"],
+  "input_mode": "image"
+}
+```
+
+### App flow
+
+1. Upload diary photo → extract
+2. Show / edit `title`, `date`, `time`, `category`
+3. If `needs_confirmation`, confirm via chat:
+
+```json
+{
+  "user_id": "…",
+  "message": "yes",
+  "confirm": true,
+  "pending_event": { "…from extract response…" }
+}
+```
+
+Or create directly with `POST /api/events`.
+
+Server needs an Ollama **vision** model, e.g. `ollama pull llava` (set `VISION_MODEL` in `.env`).
 
 
 ## Errors (JSON)
