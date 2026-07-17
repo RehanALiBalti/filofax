@@ -44,7 +44,49 @@ def test_decline_clears_empty_draft():
         assert out.intent == "clarify"
         assert out.pending_event is None
         assert "Let's set up the event" not in out.message
-        assert "chat" in out.message.lower() or "talk" in out.message.lower()
+        msg = out.message.lower()
+        assert any(w in msg for w in ("chat", "talk", "skip", "whenever", "schedule something"))
+    finally:
+        db.close()
+        _cleanup(user)
+
+
+def test_greeting_does_not_force_setup():
+    user = "test-greet-no-setup"
+    _cleanup(user)
+    svc = AssistantService(ai=None)
+    db = SessionLocal()
+    try:
+        out = svc.handle_chat(db, message="hello", user_id=user)
+        assert out.ok
+        assert "Let's set up the event" not in (out.message or "")
+        assert out.pending_event is None
+    finally:
+        db.close()
+        _cleanup(user)
+
+
+def test_set_up_event_ask_not_title():
+    user = "test-setup-not-title"
+    _cleanup(user)
+    svc = AssistantService(ai=None)
+    db = SessionLocal()
+    try:
+        # Stale empty draft from an old greeting must not swallow this as a title
+        save_draft(user, empty_draft())
+        out = svc.handle_chat(
+            db,
+            message="can you set up event for me",
+            user_id=user,
+            pending_event=empty_draft(),
+        )
+        assert out.ok
+        assert out.intent == "create_event"
+        assert out.pending_event is not None
+        assert out.pending_event.get("label") in (None, "", "null")
+        assert "Nice name" not in (out.message or "")
+        assert "can you set up event for me" not in (out.message or "").lower()
+        assert "date" in (out.message or "").lower() or "time" in (out.message or "").lower()
     finally:
         db.close()
         _cleanup(user)
@@ -57,7 +99,7 @@ def test_casual_chat_after_greeting_not_event_title():
     db = SessionLocal()
     try:
         greet = svc.handle_chat(db, message="how are you", user_id=user)
-        assert greet.pending_event is not None
+        assert "Let's set up the event" not in (greet.message or "")
 
         out = svc.handle_chat(
             db,

@@ -57,7 +57,7 @@ def _lang_bucket(language: LanguageInfo | None, text: str = "") -> str:
     return detect_lang_bucket("", language)
 
 
-# Friendly reply to "hi / how are you" — always followed by the setup opener.
+# Friendly reply to "hi / how are you" — social only (setup starts when user asks).
 _GREETING_SOCIAL: dict[str, list[str]] = {
     "en": [
         "Hey! I'm doing great — thanks for asking.",
@@ -91,29 +91,26 @@ _SETUP_OPENER: dict[str, str] = {
     "hi": "चलिए इवेंट सेट करते हैं। तारीख और समय क्या रखें?",
 }
 
-_GREETINGS: dict[str, list[str]] = {
-    bucket: [f"{s} {_SETUP_OPENER.get(bucket, _SETUP_OPENER['en'])}" for s in socials]
-    for bucket, socials in _GREETING_SOCIAL.items()
-}
+_GREETINGS: dict[str, list[str]] = dict(_GREETING_SOCIAL)
 
 _SMALLTALK: dict[str, list[str]] = {
     "en": [
-        "Nice to hear! Let's set up the event. What is the date and time for this event?",
-        "Awesome. Let's set up the event — what's the date and time?",
-        "Cool — let's get into it. Date and time for this event?",
+        "Nice to hear from you!",
+        "Awesome — I'm here if you need a reminder.",
+        "Cool. Want to chat, or set up an event?",
     ],
     "ur-Latn": [
-        "Achha sun ke khushi hui! Chalen event set karte hain — date aur time?",
-        "Zabardast. Date aur time bata dein?",
+        "Achha sun ke khushi hui!",
+        "Zabardast — main yahan hoon.",
     ],
     "ur": [
-        "اچھا! تاریخ اور وقت بتائیں؟",
+        "اچھا!",
     ],
     "hi-Latn": [
-        "Badhiya! Date aur time kya rakhein?",
+        "Badhiya!",
     ],
     "hi": [
-        "बहुत अच्छा! तारीख और समय?",
+        "बहुत अच्छा!",
     ],
 }
 
@@ -460,12 +457,10 @@ def greeting_message(
     user_id: str = "default",
     text: str = "",
 ) -> str:
-    """Answer hello / how-are-you, then invite event setup."""
+    """Answer hello / how-are-you without forcing event setup."""
     bucket = _lang_bucket(language, text)
     socials = _GREETING_SOCIAL.get(bucket) or _GREETING_SOCIAL["en"]
-    social = _pick(socials, user_id=user_id, salt="greet-social")
-    opener = _SETUP_OPENER.get(bucket) or _SETUP_OPENER["en"]
-    return f"{social} {opener}"
+    return _pick(socials, user_id=user_id, salt="greet-social")
 
 
 def smalltalk_message(

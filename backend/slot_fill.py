@@ -676,8 +676,12 @@ def scrub_invented_label(
 
 def is_fresh_create_request(text: str) -> bool:
     """True when the user is starting a new create, not answering a slot."""
+    from backend.conversation import is_declining_event_setup
+
     lower = text.strip().lower()
     if not lower:
+        return False
+    if is_declining_event_setup(text):
         return False
     # Confirm / save intents must never wipe an in-progress reminder
     if re.search(
@@ -698,12 +702,38 @@ def is_fresh_create_request(text: str) -> bool:
         r"\b(add|create|schedule)\b",
         r"\b(remind|reminder)\b",
         r"\bnew\s+(event|reminder|meeting)\b",
+        r"\b(set\s*up|setup)\s+(an?\s+)?(event|reminder|meeting)\b",
+        r"\b(set\s*up|setup)\s+(for|an?\s+event)\b",
+        r"\b(can|could|would)\s+you\s+(set\s*up|setup|create|add|schedule)\b",
+        r"\b(please|kindly)\s+(set\s*up|setup|create|add|schedule)\b",
+        r"\bhelp\s+me\s+(set\s*up|setup|create|add|schedule)\b",
         r"\bcan you add\b",
         r"\bplease add\b",
-        r"\bi want to add\b",
+        r"\bi want to (add|create|set\s*up|setup)\b",
         r"\bi need (a |an )?(reminder|event|meeting)\b",
     )
     return any(re.search(p, lower) for p in starters)
+
+
+def looks_like_create_request_not_title(text: str) -> bool:
+    """True for imperative create asks that must never become the event title."""
+    t = text.strip()
+    if not t:
+        return False
+    if is_fresh_create_request(t):
+        return True
+    return bool(
+        re.search(
+            r"^(can|could|would|please|kindly|help|i\s+want|i\s+need)\b",
+            t,
+            flags=re.IGNORECASE,
+        )
+        or re.search(
+            r"\b(set\s*up|setup|create|schedule|add)\b.*\b(event|reminder|meeting)\b",
+            t,
+            flags=re.IGNORECASE,
+        )
+    )
 
 
 def lock_confirmed_slots(
@@ -774,6 +804,8 @@ def apply_slot_reply(
     if field == "label":
         if is_conversational_message(text):
             return None
+        if looks_like_create_request_not_title(text) and not message_has_explicit_label(text):
+            return None
         # Never steal date / time / category answers as the event name
         if message_has_explicit_time(text) and not message_has_explicit_label(text):
             return None
@@ -794,6 +826,13 @@ def apply_slot_reply(
             words = text.split()
             if (
                 1 <= len(words) <= 8
+                and not looks_like_create_request_not_title(text)
+                and not re.match(
+                    r"^(can|could|would|please|kindly|i\s+want|i\s+need|yeah|yes|yep|what|who|why|how|when|where|do|are|is)\b",
+                    text,
+                    flags=re.IGNORECASE,
+                )
+                and not re.search(r"\b(you|your|u|for me)\b", text, flags=re.IGNORECASE)
                 and not message_has_explicit_date(text)
                 and not message_has_explicit_time(text)
                 and not message_has_explicit_category(text)

@@ -326,14 +326,14 @@ class AssistantService:
 
         if text and _is_greeting(text):
             greet = greeting_message(lang, user_id=user_id, text=text)
-            if draft and missing_fields(draft):
+            # Mid-setup: answer socially, then gently continue the open slot
+            if draft and draft_has_meaningful_progress(draft) and missing_fields(draft):
                 nxt = next_missing(draft)
                 ask = (
                     ask_next_field_message(nxt, lang, user_id=user_id, text=text)
                     if nxt
                     else ""
                 )
-                # Avoid repeating the same date/time opener twice
                 combined = greet if ask and ask in greet else f"{greet} {ask}".strip()
                 save_draft(user_id, draft)
                 return AssistantResponse(
@@ -347,24 +347,21 @@ class AssistantService:
                     pending_event=draft,
                     suggested_replies=suggested_replies_for(nxt or "date"),
                 )
-            # Greeting alone → reply socially, then start event draft
-            draft = empty_draft()
-            save_draft(user_id, draft)
+            # Greeting alone → social reply only (no forced event draft)
+            if draft and not draft_has_meaningful_progress(draft):
+                clear_draft(user_id)
             return AssistantResponse(
                 ok=True,
-                intent="create_event",
+                intent="clarify",
                 language=lang,
                 confidence=1.0,
                 message=greet,
-                missing_fields=missing_fields(draft),
-                requires_clarification=True,
-                pending_event=draft,
-                suggested_replies=suggested_replies_for("date"),
+                pending_event=None,
             )
 
         if text and _is_smalltalk(text):
             chatty = smalltalk_message(lang, user_id=user_id, text=text)
-            if draft and missing_fields(draft):
+            if draft and draft_has_meaningful_progress(draft) and missing_fields(draft):
                 nxt = next_missing(draft)
                 ask = (
                     ask_next_field_message(nxt, lang, user_id=user_id, text=text)
@@ -384,18 +381,15 @@ class AssistantService:
                     pending_event=draft,
                     suggested_replies=suggested_replies_for(nxt or "date"),
                 )
-            draft = empty_draft()
-            save_draft(user_id, draft)
+            if draft and not draft_has_meaningful_progress(draft):
+                clear_draft(user_id)
             return AssistantResponse(
                 ok=True,
-                intent="create_event",
+                intent="clarify",
                 language=lang,
                 confidence=1.0,
                 message=chatty,
-                missing_fields=missing_fields(draft),
-                requires_clarification=True,
-                pending_event=draft,
-                suggested_replies=suggested_replies_for("date"),
+                pending_event=None,
             )
 
         # Soft confirm again if still complete (after greeting/smalltalk paths unused)
@@ -420,6 +414,15 @@ class AssistantService:
                 draft=draft,
                 language=lang,
             )
+
+        # Explicit create ask ("can you set up an event…") — start clean, ask date/time
+        if text and is_fresh_create_request(text) and not (draft and missing_fields(draft)):
+            started = enrich_draft_from_message(empty_draft(), text)
+            started = scrub_invented_date(started, text)
+            started = scrub_invented_time(started, text)
+            started = scrub_invented_category(started, text)
+            started = scrub_invented_label(started, text)
+            return self._finish_or_ask(db, user_id, started, lang, 0.9, None)
 
         # --- Active create draft: fill next missing slot, keep asking until clear ---
         if draft and missing_fields(draft):
