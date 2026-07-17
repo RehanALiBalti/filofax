@@ -194,39 +194,6 @@
       border-color: rgba(139, 46, 46, 0.28);
       color: var(--danger);
     }
-    .type-row {
-      width: 100%;
-      max-width: 26rem;
-      display: flex;
-      gap: 0.45rem;
-      align-items: center;
-    }
-    .type-row input {
-      flex: 1;
-      min-width: 0;
-      border-radius: 999px;
-      border: 1px solid var(--line);
-      background: rgba(255, 255, 255, 0.88);
-      color: var(--ink);
-      padding: 0.7rem 1rem;
-      font: inherit;
-      outline: none;
-    }
-    .type-row input:focus {
-      border-color: rgba(11, 107, 79, 0.45);
-      box-shadow: 0 0 0 3px var(--accent-soft);
-    }
-    .type-row button {
-      border: 0;
-      border-radius: 999px;
-      padding: 0.7rem 1rem;
-      font: inherit;
-      font-weight: 600;
-      background: linear-gradient(145deg, #0d7a5a, var(--accent-deep));
-      color: #f4fffa;
-      cursor: pointer;
-      box-shadow: 0 8px 20px rgba(11, 107, 79, 0.22);
-    }
     .bottom {
       display: flex;
       flex-direction: column;
@@ -262,10 +229,6 @@
       <div class="hint" id="hint">Hands-free — speak naturally, I'll reply automatically</div>
       <div class="transcript" id="transcript" aria-live="polite"></div>
       <div class="chips" id="chips" hidden></div>
-      <form class="type-row" id="typeForm" autocomplete="off">
-        <input id="typeInput" type="text" placeholder="Or type here…" enterkeyhint="send" />
-        <button type="submit">Send</button>
-      </form>
     </div>
 
     <div class="bottom">
@@ -347,8 +310,6 @@
     const clearBtn = document.getElementById("clearBtn");
     const chatLink = document.getElementById("chatLink");
     const hintEl = document.getElementById("hint");
-    const typeForm = document.getElementById("typeForm");
-    const typeInput = document.getElementById("typeInput");
 
     chatLink.href = `${API || ""}/${window.location.search || ""}`;
 
@@ -631,8 +592,7 @@
 
     function startListening() {
       if (!SpeechRecognitionAPI) {
-        setStatus("Mic speech needs Chrome/Edge — type below instead", "err");
-        typeInput.focus();
+        setStatus("Mic speech needs Chrome/Edge", "err");
         return;
       }
       if (busy || speaking) return;
@@ -680,7 +640,7 @@
         }
         if (err === "not-allowed") {
           listening = false;
-          setStatus("Microphone blocked — allow mic or type below", "err");
+          setStatus("Microphone blocked — allow mic in browser settings", "err");
           setOrbMode("");
           return;
         }
@@ -753,16 +713,6 @@
       const cleared = "Cleared. Let's set up the event. What is the date and time?";
       addLine(cleared, "bot");
       speak(cleared);
-    });
-
-    typeForm.addEventListener("submit", (e) => {
-      e.preventDefault();
-      const text = typeInput.value.trim();
-      if (!text) return;
-      typeInput.value = "";
-      unlockAudio();
-      interruptSpeaking();
-      sendChat(text);
     });
 
     const welcome = "Let's set up the event. What is the date and time for this event?";
