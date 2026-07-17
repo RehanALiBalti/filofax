@@ -1112,14 +1112,11 @@
       speak(cleared);
     });
 
-    const welcome = "Let's set up the event. What is the date and time for this event?";
-    addLine(welcome, "bot");
-    setStatus("Starting…", "think");
-    setOrbMode("thinking");
+    // Welcome prompt hidden for now — idle straight into hands-free listen
     setTimeout(() => {
       unlockAudio();
-      speak(welcome);
-    }, 350);
+      idleStatus();
+    }, 200);
   </script>
 </body>
 </html>
