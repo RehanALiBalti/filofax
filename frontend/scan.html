@@ -710,9 +710,9 @@
             ("HTTP " + res.status)
           );
         }
-        setStatus("Saved — reminder is on your list.", "ok");
+        setStatus("Thank you — reminder saved. Schedule a new one anytime.", "ok");
         pendingEvent = null;
-        setTimeout(showCapture, 1400);
+        setTimeout(showCapture, 1600);
       } catch (err) {
         console.error(err);
         setStatus(String(err.message || err), "err");

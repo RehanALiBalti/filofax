@@ -1006,6 +1006,7 @@ class AssistantService:
             needs_confirmation=False,
             requires_clarification=False,
             event=EventOut.model_validate(event),
+            suggested_replies=["Yes, new reminder", "No thanks"],
             ai=ai_result,
         )
 

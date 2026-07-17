@@ -247,25 +247,22 @@ _DATE_HINTS: dict[str, list[str]] = {
 
 _CREATED: dict[str, list[str]] = {
     "en": [
-        "All set — \"{label}\" is safely on your list.",
-        "Done. \"{label}\" is tucked into your calendar.",
-        "Beautiful — saved \"{label}\".",
-        "You're good. \"{label}\" is locked in.",
-        "Nice close — \"{label}\" is saved.",
+        "Thank you — your reminder \"{label}\" has been saved. Would you like to schedule a new reminder?",
+        "Thanks! \"{label}\" is saved. Want to set up another reminder?",
+        "Thank you — \"{label}\" is on your list. Shall we schedule a new reminder?",
     ],
     "ur-Latn": [
-        "Ho gaya — \"{label}\" list pe safe hai.",
-        "Done! \"{label}\" save ho gaya.",
-        "Zabardast — \"{label}\" lock.",
+        "Shukriya — aapka reminder \"{label}\" save ho gaya. Naya reminder schedule karein?",
+        "Thanks! \"{label}\" save ho gaya. Koi aur reminder set karein?",
     ],
     "ur": [
-        "ہو گیا! یاد دہانی محفوظ: {label}۔",
+        "شکریہ — آپ کی یاد دہانی \"{label}\" محفوظ ہو گئی۔ نیا ریمائنڈر شیڈول کریں؟",
     ],
     "hi-Latn": [
-        "Ho gaya — \"{label}\" list pe safe hai.",
+        "Dhanyavad — aapka reminder \"{label}\" save ho gaya. Naya reminder schedule karein?",
     ],
     "hi": [
-        "हो गया! रिमाइंडर सेव: {label}।",
+        "धन्यवाद — आपका रिमाइंडर \"{label}\" सेव हो गया। नया रिमाइंडर शेड्यूल करें?",
     ],
 }
 
