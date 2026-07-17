@@ -426,7 +426,9 @@
       border-radius: 1.05rem;
       box-shadow: var(--shadow);
       backdrop-filter: blur(12px);
+      animation: fadeSlideUp 0.4s var(--ease) both;
     }
+    .transcript[hidden] { display: none !important; }
     .line {
       margin: 0.4rem 0;
       line-height: 1.45;
@@ -615,7 +617,7 @@
       </div>
 
       <div class="hint" id="hint">Hands-free — speak naturally, I'll reply automatically</div>
-      <div class="transcript" id="transcript" aria-live="polite"></div>
+      <div class="transcript" id="transcript" aria-live="polite" hidden></div>
       <div class="chips" id="chips" hidden></div>
     </main>
 
@@ -755,8 +757,14 @@
       }
     }
 
+    function revealTranscript() {
+      if (transcriptEl.hidden) transcriptEl.hidden = false;
+    }
+
     function addLine(text, kind = "bot") {
       if (!text) return null;
+      // Show panel once real chat starts (not for interim alone before first reply)
+      if (kind !== "interim") revealTranscript();
       const el = document.createElement("div");
       el.className = "line " + kind;
       el.textContent = text;
@@ -1103,20 +1111,23 @@
       stopListening(false);
       pendingEvent = null;
       transcriptEl.innerHTML = "";
+      transcriptEl.hidden = true;
       setChips([]);
       try {
         await fetch(`${API}/api/events?user_id=${encodeURIComponent(userId)}`, { method: "DELETE" });
       } catch (_) {}
       const cleared = "Cleared. Let's set up the event. What is the date and time?";
-      addLine(cleared, "bot");
       speak(cleared);
     });
 
-    // Welcome prompt hidden for now — idle straight into hands-free listen
+    // Welcome: TTS only — transcript stays hidden until a real reply
+    const welcome = "Let's set up the event. What is the date and time for this event?";
+    setStatus("Starting…", "think");
+    setOrbMode("thinking");
     setTimeout(() => {
       unlockAudio();
-      idleStatus();
-    }, 200);
+      speak(welcome);
+    }, 350);
   </script>
 </body>
 </html>
