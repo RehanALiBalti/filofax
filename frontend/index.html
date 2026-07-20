@@ -379,6 +379,28 @@
       color: #fff;
       box-shadow: 0 6px 16px rgba(11, 107, 79, 0.28);
     }
+    .icon-btn.live {
+      width: auto;
+      min-width: 2.85rem;
+      padding: 0 0.85rem;
+      border-radius: 999px;
+      gap: 0.35rem;
+      background: #fff;
+      color: var(--accent-deep);
+      border: 1.5px solid rgba(11, 107, 79, 0.35);
+      font-size: 0.82rem;
+      font-weight: 650;
+      letter-spacing: 0.02em;
+      box-shadow: 0 4px 12px rgba(21, 35, 28, 0.06);
+    }
+    .icon-btn.live .live-dot {
+      width: 0.45rem;
+      height: 0.45rem;
+      border-radius: 50%;
+      background: #e53935;
+      flex-shrink: 0;
+      animation: recBlink 1s ease-in-out infinite;
+    }
     .icon-btn.send {
       background: var(--accent-deep);
       color: #fff;
@@ -565,7 +587,7 @@
       <section class="panel chat-panel">
         <div class="panel-head">
           <h2>Chat</h2>
-          <div class="panel-actions">
+          <div class="panel-actions" hidden>
             <button type="button" class="tts-toggle" id="ttsBtn" title="Toggle voice replies">🔊 Voice on</button>
             <button type="button" class="clear-reminder" id="clearBtn" title="Clear chat and delete all saved reminders">
               Clear
@@ -586,6 +608,10 @@
             </div>
             <button type="button" class="icon-btn mic" id="micBtn" title="Voice note" aria-label="Voice note">
               <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"/></svg>
+            </button>
+            <button type="button" class="icon-btn live" id="liveBtn" title="Open live voice assistant" aria-label="Live">
+              <span class="live-dot" aria-hidden="true"></span>
+              Live
             </button>
             <button type="submit" class="icon-btn send" id="sendBtn" title="Send" aria-label="Send" hidden>
               <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z"/></svg>
@@ -675,6 +701,7 @@
     const input = document.getElementById("message");
     const sendBtn = document.getElementById("sendBtn");
     const micBtn = document.getElementById("micBtn");
+    const liveBtn = document.getElementById("liveBtn");
     const textRow = document.getElementById("textRow");
     const recRow = document.getElementById("recRow");
     const recTimerEl = document.getElementById("recTimer");
@@ -1245,10 +1272,23 @@
     function setBusy(busy) {
       sendBtn.disabled = busy;
       micBtn.disabled = busy;
+      if (liveBtn) liveBtn.disabled = busy;
       stopRecBtn.disabled = busy;
       cancelRecBtn.disabled = busy;
       input.disabled = busy;
     }
+
+    function talkPageUrl() {
+      const params = new URLSearchParams();
+      if (userId) params.set("userid", userId);
+      if (timezone) params.set("timezone", timezone);
+      const qs = params.toString();
+      return `${API || ""}/talk${qs ? `?${qs}` : ""}`;
+    }
+
+    liveBtn?.addEventListener("click", () => {
+      window.location.href = talkPageUrl();
+    });
 
     function addBubble(text, who, extraClass = "") {
       const div = document.createElement("div");
